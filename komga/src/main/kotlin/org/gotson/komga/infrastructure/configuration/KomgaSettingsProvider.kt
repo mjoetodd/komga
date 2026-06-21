@@ -112,6 +112,36 @@ class KomgaSettingsProvider(
       field = value
       eventPublisher.publishEvent(SettingChangedEvent.KepubifyPath)
     }
+
+  var ttsProviderUrl: String? =
+    serverSettingsDao.getSettingByKey(Settings.TTS_PROVIDER_URL.name, String::class.java)?.ifBlank { null }
+    set(value) {
+      if (value != null)
+        serverSettingsDao.saveSetting(Settings.TTS_PROVIDER_URL.name, value)
+      else
+        serverSettingsDao.deleteSetting(Settings.TTS_PROVIDER_URL.name)
+      field = value
+    }
+
+  var ttsProviderApiKey: String? =
+    serverSettingsDao.getSettingByKey(Settings.TTS_PROVIDER_API_KEY.name, String::class.java)?.ifBlank { null }
+    set(value) {
+      if (value != null)
+        serverSettingsDao.saveSetting(Settings.TTS_PROVIDER_API_KEY.name, value)
+      else
+        serverSettingsDao.deleteSetting(Settings.TTS_PROVIDER_API_KEY.name)
+      field = value
+    }
+
+  var ttsDefaultVoice: String? =
+    serverSettingsDao.getSettingByKey(Settings.TTS_DEFAULT_VOICE.name, String::class.java)?.ifBlank { null }
+    set(value) {
+      if (value != null)
+        serverSettingsDao.saveSetting(Settings.TTS_DEFAULT_VOICE.name, value)
+      else
+        serverSettingsDao.deleteSetting(Settings.TTS_DEFAULT_VOICE.name)
+      field = value
+    }
 }
 
 private enum class Settings {
@@ -126,4 +156,7 @@ private enum class Settings {
   KOBO_PROXY,
   KOBO_PORT,
   KEPUBIFY_PATH,
+  TTS_PROVIDER_URL,
+  TTS_PROVIDER_API_KEY,
+  TTS_DEFAULT_VOICE,
 }

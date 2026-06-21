@@ -51,6 +51,7 @@ import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.SER
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.SERVER_SETTINGS
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.SYNCPOINTS
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.TASKS
+import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.TTS
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.USERS
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration.TagNames.USER_SESSION
 import org.springdoc.core.customizers.OperationCustomizer
@@ -408,6 +409,7 @@ class OpenApiConfiguration(
     const val COMICRACK = "ComicRack"
 
     const val CLIENT_SETTINGS = "Client settings"
+    const val TTS = "Text-to-Speech"
   }
 
   private val tags =
@@ -447,5 +449,6 @@ class OpenApiConfiguration(
       Tag().name(MIHON),
       Tag().name(COMICRACK),
       Tag().name(CLIENT_SETTINGS).description("Store and retrieve global and per-user settings. Those settings are not used by Komga itself, but can be stored for convenience by client applications."),
+      Tag().name(TTS).description("Proxy text-to-speech requests to the server-configured provider"),
     )
 }

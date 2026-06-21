@@ -9,6 +9,9 @@ export interface SettingsDto {
   koboProxy: boolean,
   koboPort?: number,
   kepubifyPath: SettingMultiSource<string>,
+  ttsProviderUrl?: string,
+  ttsProviderApiKeySet: boolean,
+  ttsDefaultVoice?: string,
 }
 
 export interface SettingMultiSource<T> {
@@ -29,6 +32,9 @@ export interface SettingsUpdateDto {
   koboProxy?: boolean,
   koboPort?: number,
   kepubifyPath?: string,
+  ttsProviderUrl?: string,
+  ttsProviderApiKey?: string,
+  ttsDefaultVoice?: string,
 }
 
 export enum ThumbnailSizeDto {

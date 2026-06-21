@@ -33,6 +33,15 @@
 
         <v-btn
           icon
+          :color="ttsActive ? 'primary' : ''"
+          @click="toggleTtsPlayback"
+          title="Toggle TTS Read Aloud"
+        >
+          <v-icon>{{ ttsState === 'speaking' ? 'mdi-stop-circle-outline' : 'mdi-account-voice' }}</v-icon>
+        </v-btn>
+
+        <v-btn
+          icon
           @click="showHelp = !showHelp">
           <v-icon>mdi-help-circle</v-icon>
         </v-btn>
@@ -282,10 +291,35 @@
                 tick-size="3"
               />
             </v-list-item>
+
+            <v-divider />
+            <v-subheader class="font-weight-black text-h6">Text-to-Speech (Read Aloud)</v-subheader>
+            <v-list-item>
+              <tts-settings-panel
+                :settings="settings"
+                @update-setting="updateTtsSetting"
+                @provider-changed="onTtsProviderChanged"
+                @toast="sendNotification"
+              />
+            </v-list-item>
           </v-list>
         </v-card-text>
       </v-card>
     </v-bottom-sheet>
+
+    <!-- Floating TTS Playback Controls -->
+    <tts-playback-bar
+      :active="ttsActive"
+      :state="ttsState"
+      :sentence-text="ttsSentenceText"
+      :speed="settings.ttsRate"
+      @toggle-play="toggleTtsPlay"
+      @stop="stopTTS"
+      @prev="skipTtsPrev"
+      @next="skipTtsNext"
+      @speed-up="adjustTtsSpeed(0.1)"
+      @speed-down="adjustTtsSpeed(-0.1)"
+    />
 
     <v-snackbar
       v-model="notification.enabled"
@@ -332,9 +366,21 @@ import SettingsSelect from '@/components/SettingsSelect.vue'
 import {createR2Progression, r2ProgressionToReadingPosition} from '@/functions/readium'
 import {debounce} from 'lodash'
 
+import TtsSettingsPanel from '@/components/TtsSettingsPanel.vue'
+import TtsPlaybackBar from '@/components/TtsPlaybackBar.vue'
+import { TTSController } from '@/functions/tts/tts-controller'
+import { TTSProviderRegistry } from '@/functions/tts/tts-provider-registry'
+
 export default Vue.extend({
   name: 'EpubReader',
-  components: {SettingsSelect, ShortcutHelpDialog, TocList, SettingsSwitch},
+  components: {
+    SettingsSelect,
+    ShortcutHelpDialog,
+    TocList,
+    SettingsSwitch,
+    TtsSettingsPanel,
+    TtsPlaybackBar,
+  },
   data: function () {
     return {
       screenfull,
@@ -412,6 +458,12 @@ export default Vue.extend({
         alwaysFullscreen: false,
         navigationClick: true,
         navigationButtons: true,
+        // TTS Settings
+        ttsProviderId: 'browser',
+        ttsVoiceId: '',
+        ttsRate: 1.0,
+        ttsHighlightMode: 'sentence',
+        ttsLanguage: '',
       },
       navigationOptions: [
         {text: this.$t('epubreader.settings.navigation_options.buttons').toString(), value: 'button'},
@@ -438,6 +490,13 @@ export default Vue.extend({
       progressionPageCount: undefined as number,
       effectiveDirection: 'ltr',
       fixedLayout: false,
+      
+      // TTS State
+      ttsController: null as TTSController | null,
+      ttsActive: false,
+      ttsState: 'idle',
+      ttsSentenceText: '',
+      ttsProgress: 0,
     }
   },
   created() {
@@ -446,6 +505,10 @@ export default Vue.extend({
   },
   beforeDestroy() {
     this.d2Reader.stop()
+    if (this.ttsController) {
+      this.ttsController.stop()
+      this.ttsController = null
+    }
   },
   destroyed() {
     this.$vuetify.rtl = (this.$t('common.locale_rtl') === 'true')
@@ -686,6 +749,26 @@ export default Vue.extend({
       this.showHelp = !this.showHelp
     },
     keyPressed(e: KeyboardEvent) {
+      if (e.key === 'r' || e.key === 'R') {
+        this.toggleTtsPlayback()
+        return
+      }
+      if (e.key === '[') {
+        this.adjustTtsSpeed(-0.1)
+        return
+      }
+      if (e.key === ']') {
+        this.adjustTtsSpeed(0.1)
+        return
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        this.skipTtsNext()
+        return
+      }
+      if (e.key === 'b' || e.key === 'B') {
+        this.skipTtsPrev()
+        return
+      }
       this.shortcuts[e.key]?.execute(this)
     },
     clickThrough(e: MouseEvent) {
@@ -862,6 +945,7 @@ export default Vue.extend({
 
       this.markProgress(location)
       this.currentLocation = location
+      this.syncTtsDocument()
       return new Promise(function (resolve, _) {
         resolve(location)
       })
@@ -956,6 +1040,148 @@ export default Vue.extend({
       this.notification.timeout = timeout
       this.notification.message = message
       this.notification.enabled = true
+    },
+    initTTSController() {
+      if (this.ttsController) return
+
+      this.ttsController = new TTSController({
+        locale: this.book?.metadata?.language || 'en',
+        rate: this.settings.ttsRate,
+        speechLanguage: this.settings.ttsLanguage || undefined,
+        highlightMode: this.settings.ttsHighlightMode,
+        onStateChange: (state) => {
+          this.ttsState = state
+          this.ttsActive = state !== 'idle'
+          if (this.ttsController) {
+            this.ttsSentenceText = this.ttsController.getCurrentSentenceText()
+          }
+        },
+        onChapterEnd: () => {
+          this.d2Reader.nextPage()
+        },
+        onAdvancePage: () => {
+          this.d2Reader.nextPage()
+        },
+        onProgress: (progress) => {
+          this.ttsProgress = progress
+        },
+      })
+      
+      const registry = TTSProviderRegistry.getInstance()
+      registry.setActiveProvider(this.settings.ttsProviderId, {
+        voiceId: this.settings.ttsVoiceId,
+      }).then((provider) => {
+        provider.getVoices().then((voices) => {
+          const v = voices.find(x => x.id === this.settings.ttsVoiceId)
+          if (v) this.ttsController?.setVoice(v)
+        })
+      })
+    },
+    async syncTtsDocument() {
+      this.initTTSController()
+      if (!this.ttsController) return
+
+      const iframe = this.getReaderIframe()
+      if (iframe && iframe.contentDocument) {
+        if (iframe.contentDocument.readyState !== 'complete') {
+          iframe.addEventListener('load', () => {
+            if (iframe.contentDocument) {
+              this.ttsController?.setDocument(iframe.contentDocument)
+            }
+          }, { once: true })
+        } else {
+          this.ttsController.setDocument(iframe.contentDocument)
+        }
+      }
+    },
+    getReaderIframe(): HTMLIFrameElement | null {
+      return document.querySelector('#iframe-wrapper iframe')
+    },
+    toggleTtsPlayback() {
+      this.initTTSController()
+      if (!this.ttsController) return
+
+      if (this.ttsState === 'speaking') {
+        this.stopTTS()
+      } else {
+        const iframe = this.getReaderIframe()
+        if (iframe && iframe.contentDocument) {
+          this.ttsController.setDocument(iframe.contentDocument)
+          this.ttsController.syncToVisiblePosition()
+          this.ttsController.play()
+        } else {
+          this.sendNotification('Unable to access book content for speech.')
+        }
+      }
+    },
+    toggleTtsPlay() {
+      if (!this.ttsController) return
+      if (this.ttsState === 'speaking') {
+        this.ttsController.pause()
+      } else {
+        this.ttsController.play()
+      }
+    },
+    stopTTS() {
+      if (this.ttsController) {
+        this.ttsController.stop()
+      }
+    },
+    skipTtsPrev() {
+      if (this.ttsController) {
+        this.ttsController.skipBackward()
+      }
+    },
+    skipTtsNext() {
+      if (this.ttsController) {
+        this.ttsController.skipForward()
+      }
+    },
+    adjustTtsSpeed(delta: number) {
+      const newRate = Math.min(Math.max(this.settings.ttsRate + delta, 0.5), 3.0)
+      this.settings.ttsRate = Math.round(newRate * 10) / 10
+      this.$store.commit('setEpubreaderSettings', this.settings)
+      if (this.ttsController) {
+        this.ttsController.setSpeed(this.settings.ttsRate)
+      }
+    },
+    updateTtsSetting({ key, value }: { key: string; value: any }) {
+      this.settings[key] = value
+      this.$store.commit('setEpubreaderSettings', this.settings)
+      
+      if (this.ttsController) {
+        if (key === 'ttsRate') {
+          this.ttsController.setSpeed(value)
+        } else if (key === 'ttsHighlightMode') {
+          this.ttsController.setHighlightMode(value)
+        } else if (key === 'ttsVoiceId') {
+          const registry = TTSProviderRegistry.getInstance()
+          registry.getActiveProvider().getVoices().then((voices) => {
+            const v = voices.find(x => x.id === value)
+            if (v) this.ttsController?.setVoice(v)
+          })
+        } else if (key === 'ttsLanguage') {
+          this.ttsController.setSpeechLanguage(value || undefined)
+        }
+      }
+    },
+    async onTtsProviderChanged(providerId: string) {
+      this.settings.ttsProviderId = providerId
+      this.$store.commit('setEpubreaderSettings', this.settings)
+      
+      if (this.ttsController) {
+        const registry = TTSProviderRegistry.getInstance()
+        const provider = await registry.setActiveProvider(providerId, {
+          voiceId: this.settings.ttsVoiceId,
+        })
+        const voices = await provider.getVoices()
+        const voice = voices.find(v => v.id === this.settings.ttsVoiceId) || voices[0]
+        if (voice) {
+          this.settings.ttsVoiceId = voice.id
+          this.$store.commit('setEpubreaderSettings', this.settings)
+          this.ttsController.setVoice(voice)
+        }
+      }
     },
     markProgress: debounce(function (this: any, location: Locator) {
       if (!this.incognito) {

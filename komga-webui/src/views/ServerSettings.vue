@@ -166,6 +166,47 @@
       </v-col>
     </v-row>
     <v-row>
+      <v-col><span class="text-h6">{{ $t('server_settings.tts_settings') }}</span></v-col>
+    </v-row>
+    <v-row>
+      <v-col cols="auto">
+        <v-text-field
+          v-model="form.ttsProviderUrl"
+          @input="$v.form.ttsProviderUrl.$touch()"
+          @blur="$v.form.ttsProviderUrl.$touch()"
+          clearable
+          :label="$t('server_settings.label_tts_provider_url')"
+          placeholder="https://api.openai.com"
+          :hint="$t('server_settings.hint_tts_provider_url')"
+          persistent-hint
+          class="mt-4"
+        />
+
+        <v-text-field
+          v-model="form.ttsProviderApiKey"
+          @input="$v.form.ttsProviderApiKey.$touch()"
+          @blur="$v.form.ttsProviderApiKey.$touch()"
+          clearable
+          type="password"
+          :label="$t('server_settings.label_tts_provider_api_key')"
+          :placeholder="existingSettings.ttsProviderApiKeySet ? '••••••••' : ''"
+          :persistent-placeholder="existingSettings.ttsProviderApiKeySet"
+          :hint="$t('server_settings.hint_tts_provider_api_key')"
+          persistent-hint
+          class="mt-4"
+        />
+
+        <v-text-field
+          v-model="form.ttsDefaultVoice"
+          @input="$v.form.ttsDefaultVoice.$touch()"
+          @blur="$v.form.ttsDefaultVoice.$touch()"
+          clearable
+          :label="$t('server_settings.label_tts_default_voice')"
+          class="mt-4"
+        />
+      </v-col>
+    </v-row>
+    <v-row>
       <v-col cols="auto">
         <v-btn @click="refreshSettings"
                :disabled="discardDisabled"
@@ -219,6 +260,9 @@ export default Vue.extend({
       koboProxy: false,
       koboPort: undefined,
       kepubifyPath: undefined,
+      ttsProviderUrl: undefined,
+      ttsProviderApiKey: undefined,
+      ttsDefaultVoice: undefined,
     },
     existingSettings: {} as SettingsDto,
     dialogRegenerateThumbnails: false,
@@ -251,6 +295,9 @@ export default Vue.extend({
         maxValue: maxValue(65535),
       },
       kepubifyPath: {},
+      ttsProviderUrl: {},
+      ttsProviderApiKey: {},
+      ttsDefaultVoice: {},
     },
   },
   mounted() {
@@ -309,6 +356,8 @@ export default Vue.extend({
       this.form.serverPort = settings.serverPort.databaseSource
       this.form.serverContextPath = settings.serverContextPath.databaseSource
       this.form.kepubifyPath = settings.kepubifyPath.databaseSource
+      // the API key is never returned by the server, only whether one is set
+      this.form.ttsProviderApiKey = undefined
       this.$_.merge(this.existingSettings, settings)
       this.$v.form.$reset()
     },
@@ -342,6 +391,12 @@ export default Vue.extend({
       if (this.$v.form?.kepubifyPath?.$dirty)
         this.$_.merge(newSettings, {kepubifyPath: this.form.kepubifyPath})
 
+      if (this.$v.form?.ttsProviderUrl?.$dirty)
+        this.$_.merge(newSettings, {ttsProviderUrl: this.form.ttsProviderUrl || null})
+      if (this.$v.form?.ttsProviderApiKey?.$dirty)
+        this.$_.merge(newSettings, {ttsProviderApiKey: this.form.ttsProviderApiKey || null})
+      if (this.$v.form?.ttsDefaultVoice?.$dirty)
+        this.$_.merge(newSettings, {ttsDefaultVoice: this.form.ttsDefaultVoice || null})
 
       await this.$komgaSettings.updateSettings(newSettings)
       await this.refreshSettings()

@@ -990,6 +990,8 @@
       "title": "Regenerate thumbnails"
     },
     "hint_kobo_port": "Set only in case of sync issues with covers and downloads",
+    "hint_tts_provider_api_key": "Leave blank to keep the existing key. Stored server-side only, never sent to the browser",
+    "hint_tts_provider_url": "Base URL only, e.g. https://api.openai.com or http://192.168.1.10:8567. Komga appends /v1/audio/speech and /v1/voices itself (OpenAI-compatible convention)",
     "label_delete_empty_collections": "Delete empty collections after scan",
     "label_delete_empty_readlists": "Delete empty read lists after scan",
     "label_kepubify_path": "Path to kepubify",
@@ -1000,8 +1002,12 @@
     "label_server_port": "Server Port",
     "label_task_pool_size": "Task threads",
     "label_thumbnail_size": "Thumbnails size",
+    "label_tts_default_voice": "Default voice",
+    "label_tts_provider_api_key": "TTS Provider API Key",
+    "label_tts_provider_url": "TTS Provider URL",
     "requires_restart": "Requires restart to take effect",
-    "server_settings": "Server Settings"
+    "server_settings": "Server Settings",
+    "tts_settings": "Text-to-Speech (Read Aloud)"
   },
   "settings_user": {
     "change_password": "Change password",

@@ -51,4 +51,19 @@ class SettingsUpdateDto {
     by Delegates.observable(null) { prop, _, _ ->
       isSet[prop.name] = true
     }
+
+  var ttsProviderUrl: String?
+    by Delegates.observable(null) { prop, _, _ ->
+      isSet[prop.name] = true
+    }
+
+  var ttsProviderApiKey: String?
+    by Delegates.observable(null) { prop, _, _ ->
+      isSet[prop.name] = true
+    }
+
+  var ttsDefaultVoice: String?
+    by Delegates.observable(null) { prop, _, _ ->
+      isSet[prop.name] = true
+    }
 }

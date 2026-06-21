@@ -32,6 +32,10 @@ class CorsConfiguration {
           allowedOrigins = komgaProperties.cors.allowedOrigins
           allowedMethods = HttpMethod.values().map { it.name() }
           allowCredentials = true
+          // the "*" from applyPermitDefaultValues() does NOT cover Authorization per the
+          // Fetch spec - it must be listed explicitly, or cross-origin Basic Auth (login)
+          // preflights are rejected by the browser even though every other header is allowed
+          addAllowedHeader(HttpHeaders.AUTHORIZATION)
           addExposedHeader(HttpHeaders.CONTENT_DISPOSITION)
           addExposedHeader(sessionHeaderName)
         },

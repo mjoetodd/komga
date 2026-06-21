@@ -3,6 +3,23 @@ import VueI18n, {LocaleMessages} from 'vue-i18n'
 
 Vue.use(VueI18n)
 
+// Vuetify itself looks up its own internal strings (aria-labels like "$vuetify.badge",
+// "$vuetify.input.clear", etc - see plugins/vuetify.ts's `lang.t`) through this same vue-i18n
+// instance, under the "$vuetify" key. The app's own locale files only carry a partial,
+// hand-maintained copy of those strings, which drifts out of sync as Vuetify adds new ones -
+// hence the "Cannot translate... $vuetify.badge" warnings. Pull Vuetify's own (always
+// up-to-date) locale data in instead, with the app's overrides layered on top.
+function loadVuetifyMessages(code: string): Record<string, any> {
+  const vuetifyLocales = require.context('vuetify/lib/locale', false, /\.js$/)
+  for (const candidate of [code, code.split('-')[0], 'en']) {
+    const file = `./${candidate}.js`
+    if (vuetifyLocales.keys().includes(file)) {
+      return vuetifyLocales(file).default
+    }
+  }
+  return {}
+}
+
 function loadLocaleMessages(): LocaleMessages {
   const locales = require.context('./locales', true, /[A-Za-z0-9-_,\s]+\.json$/i)
   const messages: LocaleMessages = {}
@@ -10,7 +27,11 @@ function loadLocaleMessages(): LocaleMessages {
     const matched = key.match(/([A-Za-z0-9-_]+)\./i)
     if (matched && matched.length > 1) {
       const locale = matched[1]
-      messages[locale] = locales(key)
+      const appMessages = locales(key)
+      messages[locale] = {
+        ...appMessages,
+        $vuetify: { ...loadVuetifyMessages(locale), ...appMessages.$vuetify },
+      }
     }
   })
   return messages

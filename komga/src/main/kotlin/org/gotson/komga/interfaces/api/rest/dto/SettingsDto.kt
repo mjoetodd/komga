@@ -11,6 +11,9 @@ data class SettingsDto(
   val koboProxy: Boolean,
   val koboPort: Int?,
   val kepubifyPath: SettingMultiSource<String?>,
+  val ttsProviderUrl: String?,
+  val ttsProviderApiKeySet: Boolean,
+  val ttsDefaultVoice: String?,
 )
 
 data class SettingMultiSource<T>(

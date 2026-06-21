@@ -50,6 +50,9 @@ class SettingsController(
       komgaSettingsProvider.koboProxy,
       komgaSettingsProvider.koboPort,
       SettingMultiSource(kepubConverter.kepubifyConfigurationPath, komgaSettingsProvider.kepubifyPath, kepubConverter.kepubifyPath?.toString()),
+      komgaSettingsProvider.ttsProviderUrl,
+      !komgaSettingsProvider.ttsProviderApiKey.isNullOrBlank(),
+      komgaSettingsProvider.ttsDefaultVoice,
     )
 
   @PatchMapping
@@ -73,5 +76,9 @@ class SettingsController(
     newSettings.koboProxy?.let { komgaSettingsProvider.koboProxy = it }
     if (newSettings.isSet("koboPort")) komgaSettingsProvider.koboPort = newSettings.koboPort
     if (newSettings.isSet("kepubifyPath")) komgaSettingsProvider.kepubifyPath = newSettings.kepubifyPath
+
+    if (newSettings.isSet("ttsProviderUrl")) komgaSettingsProvider.ttsProviderUrl = newSettings.ttsProviderUrl
+    if (newSettings.isSet("ttsProviderApiKey")) komgaSettingsProvider.ttsProviderApiKey = newSettings.ttsProviderApiKey
+    if (newSettings.isSet("ttsDefaultVoice")) komgaSettingsProvider.ttsDefaultVoice = newSettings.ttsDefaultVoice
   }
 }
