@@ -184,9 +184,12 @@ export default Vue.extend({
     },
     async onProviderChange(newProviderId: string) {
       try {
-        await this.registry.setActiveProvider(newProviderId, {
-          voiceId: this.voiceId,
-        })
+        // Don't seed the new provider with the outgoing provider's voiceId - it's a
+        // foreign id (e.g. a browser voice name) that the new provider doesn't recognize.
+        // ServerTTSProvider would otherwise treat it as a real, default-selected option in
+        // its voice list fallback, so loadVoices() below would "match" it and immediately
+        // pre-warm audio for a voice id the server has never heard of.
+        await this.registry.setActiveProvider(newProviderId, {})
         this.$emit('provider-changed', newProviderId)
         await this.loadVoices()
         if (newProviderId === 'server') await this.refreshServerStatus()

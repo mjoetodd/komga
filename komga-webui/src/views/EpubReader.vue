@@ -1165,23 +1165,16 @@ export default Vue.extend({
         }
       }
     },
-    async onTtsProviderChanged(providerId: string) {
+    // Provider switching (registry.setActiveProvider + loading the new provider's real
+    // voice list and picking its default) is owned by TtsSettingsPanel.onProviderChange,
+    // which emits 'update-setting' for ttsVoiceId once it has a confirmed valid voice from
+    // that list - that flows into updateTtsSetting() below and calls setVoice() there. Doing
+    // it again here too, using the *old* provider's voiceId, would feed a foreign voice id
+    // into the new provider and let the controller prefetch/pre-warm audio for it before a
+    // valid voice was ever loaded.
+    onTtsProviderChanged(providerId: string) {
       this.settings.ttsProviderId = providerId
       this.$store.commit('setEpubreaderSettings', this.settings)
-      
-      if (this.ttsController) {
-        const registry = TTSProviderRegistry.getInstance()
-        const provider = await registry.setActiveProvider(providerId, {
-          voiceId: this.settings.ttsVoiceId,
-        })
-        const voices = await provider.getVoices()
-        const voice = voices.find(v => v.id === this.settings.ttsVoiceId) || voices[0]
-        if (voice) {
-          this.settings.ttsVoiceId = voice.id
-          this.$store.commit('setEpubreaderSettings', this.settings)
-          this.ttsController.setVoice(voice)
-        }
-      }
     },
     markProgress: debounce(function (this: any, location: Locator) {
       if (!this.incognito) {
