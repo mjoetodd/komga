@@ -12,6 +12,7 @@ export interface SettingsDto {
   ttsProviderUrl?: string,
   ttsProviderApiKeySet: boolean,
   ttsDefaultVoice?: string,
+  ttsModel?: string,
 }
 
 export interface SettingMultiSource<T> {
@@ -35,6 +36,7 @@ export interface SettingsUpdateDto {
   ttsProviderUrl?: string,
   ttsProviderApiKey?: string,
   ttsDefaultVoice?: string,
+  ttsModel?: string,
 }
 
 export enum ThumbnailSizeDto {

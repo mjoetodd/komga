@@ -142,6 +142,19 @@ class KomgaSettingsProvider(
         serverSettingsDao.deleteSetting(Settings.TTS_DEFAULT_VOICE.name)
       field = value
     }
+
+  // Some OpenAI-compatible TTS providers (e.g. Kokoro-FastAPI) require a `model` field on
+  // /v1/audio/speech requests and reject the call without it; others (e.g. Qwen3-TTS-API)
+  // ignore or don't require it. Left blank, it's omitted from the request entirely.
+  var ttsModel: String? =
+    serverSettingsDao.getSettingByKey(Settings.TTS_MODEL.name, String::class.java)?.ifBlank { null }
+    set(value) {
+      if (value != null)
+        serverSettingsDao.saveSetting(Settings.TTS_MODEL.name, value)
+      else
+        serverSettingsDao.deleteSetting(Settings.TTS_MODEL.name)
+      field = value
+    }
 }
 
 private enum class Settings {
@@ -159,4 +172,5 @@ private enum class Settings {
   TTS_PROVIDER_URL,
   TTS_PROVIDER_API_KEY,
   TTS_DEFAULT_VOICE,
+  TTS_MODEL,
 }

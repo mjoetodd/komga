@@ -63,10 +63,18 @@ class TtsController(
   private fun baseUrl(): String =
     komgaSettingsProvider.ttsProviderUrl
       ?.takeIf { it.isNotBlank() }
+      ?.trim()
       ?.trimEnd('/')
+      // a bare "host:port" (no scheme) makes java.net.URI throw "Illegal character in scheme
+      // name", since it tries to parse the host as the scheme - default to http:// since
+      // self-hosted TTS servers are commonly run without TLS on a LAN
+      ?.let { if (!it.contains("://")) "http://$it" else it }
       ?: throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "No TTS provider is configured on the server")
 
-  private fun proxyGet(path: String): ResponseEntity<ByteArray> {
+  private fun proxyGet(
+    path: String,
+    fallbackPath: String? = null,
+  ): ResponseEntity<ByteArray> {
     val url = "${baseUrl()}$path"
     val apiKey = komgaSettingsProvider.ttsProviderApiKey
 
@@ -83,6 +91,10 @@ class TtsController(
             throw ResponseStatusException(HttpStatus.BAD_GATEWAY, "TTS provider returned an error: ${res.statusCode}")
           }.toEntity<ByteArray>()
       } catch (e: ResponseStatusException) {
+        // Not every OpenAI-compatible provider agrees on the voices path (e.g. Kokoro-FastAPI
+        // serves it at /v1/audio/voices instead of the /v1/voices convention) - retry once at
+        // the alternate path before giving up.
+        if (fallbackPath != null && e.statusCode == HttpStatus.BAD_GATEWAY) return proxyGet(fallbackPath)
         throw e
       } catch (e: Exception) {
         logger.warn(e) { "Could not reach TTS provider at $url" }
@@ -107,11 +119,11 @@ class TtsController(
   @GetMapping("voices")
   @Operation(
     summary = "List available voices and languages",
-    description = "Proxies to the server-configured provider's `/v1/voices` endpoint (OpenAI-compatible convention), so the browser never needs the provider's URL or key.",
+    description = "Proxies to the server-configured provider's `/v1/voices` endpoint (OpenAI-compatible convention), falling back to `/v1/audio/voices` (e.g. Kokoro-FastAPI) if that 404s, so the browser never needs the provider's URL or key.",
   )
   fun voices(
     @AuthenticationPrincipal principal: KomgaPrincipal,
-  ): ResponseEntity<ByteArray> = proxyGet("/v1/voices")
+  ): ResponseEntity<ByteArray> = proxyGet("/v1/voices", fallbackPath = "/v1/audio/voices")
 
   @PostMapping("speak")
   @Operation(
@@ -134,6 +146,9 @@ class TtsController(
         put("speed", request.rate ?: 1.0)
         if (!voice.isNullOrBlank()) put("voice", voice)
         if (!request.language.isNullOrBlank()) put("language", request.language)
+        // Some providers (e.g. Kokoro-FastAPI) require `model` on /v1/audio/speech and
+        // reject the request without it; others ignore it - only send it if configured.
+        if (!komgaSettingsProvider.ttsModel.isNullOrBlank()) put("model", komgaSettingsProvider.ttsModel)
       }
 
     val response =
@@ -147,7 +162,8 @@ class TtsController(
           }.body(body)
           .retrieve()
           .onStatus(HttpStatusCode::isError) { _, res ->
-            logger.warn { "TTS provider returned an error: ${res.statusCode}" }
+            val detail = String(res.body.readAllBytes()).take(500)
+            logger.warn { "TTS provider returned an error: ${res.statusCode} - $detail" }
             throw ResponseStatusException(HttpStatus.BAD_GATEWAY, "TTS provider returned an error: ${res.statusCode}")
           }.toEntity<ByteArray>()
       } catch (e: ResponseStatusException) {

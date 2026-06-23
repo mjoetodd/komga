@@ -66,4 +66,9 @@ class SettingsUpdateDto {
     by Delegates.observable(null) { prop, _, _ ->
       isSet[prop.name] = true
     }
+
+  var ttsModel: String?
+    by Delegates.observable(null) { prop, _, _ ->
+      isSet[prop.name] = true
+    }
 }

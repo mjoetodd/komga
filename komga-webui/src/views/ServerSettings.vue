@@ -204,6 +204,17 @@
           :label="$t('server_settings.label_tts_default_voice')"
           class="mt-4"
         />
+
+        <v-text-field
+          v-model="form.ttsModel"
+          @input="$v.form.ttsModel.$touch()"
+          @blur="$v.form.ttsModel.$touch()"
+          clearable
+          :label="$t('server_settings.label_tts_model')"
+          :hint="$t('server_settings.hint_tts_model')"
+          persistent-hint
+          class="mt-4"
+        />
       </v-col>
     </v-row>
     <v-row>
@@ -263,6 +274,7 @@ export default Vue.extend({
       ttsProviderUrl: undefined,
       ttsProviderApiKey: undefined,
       ttsDefaultVoice: undefined,
+      ttsModel: undefined,
     },
     existingSettings: {} as SettingsDto,
     dialogRegenerateThumbnails: false,
@@ -298,6 +310,7 @@ export default Vue.extend({
       ttsProviderUrl: {},
       ttsProviderApiKey: {},
       ttsDefaultVoice: {},
+      ttsModel: {},
     },
   },
   mounted() {
@@ -397,6 +410,8 @@ export default Vue.extend({
         this.$_.merge(newSettings, {ttsProviderApiKey: this.form.ttsProviderApiKey || null})
       if (this.$v.form?.ttsDefaultVoice?.$dirty)
         this.$_.merge(newSettings, {ttsDefaultVoice: this.form.ttsDefaultVoice || null})
+      if (this.$v.form?.ttsModel?.$dirty)
+        this.$_.merge(newSettings, {ttsModel: this.form.ttsModel || null})
 
       await this.$komgaSettings.updateSettings(newSettings)
       await this.refreshSettings()

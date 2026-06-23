@@ -53,6 +53,7 @@ class SettingsController(
       komgaSettingsProvider.ttsProviderUrl,
       !komgaSettingsProvider.ttsProviderApiKey.isNullOrBlank(),
       komgaSettingsProvider.ttsDefaultVoice,
+      komgaSettingsProvider.ttsModel,
     )
 
   @PatchMapping
@@ -80,5 +81,6 @@ class SettingsController(
     if (newSettings.isSet("ttsProviderUrl")) komgaSettingsProvider.ttsProviderUrl = newSettings.ttsProviderUrl
     if (newSettings.isSet("ttsProviderApiKey")) komgaSettingsProvider.ttsProviderApiKey = newSettings.ttsProviderApiKey
     if (newSettings.isSet("ttsDefaultVoice")) komgaSettingsProvider.ttsDefaultVoice = newSettings.ttsDefaultVoice
+    if (newSettings.isSet("ttsModel")) komgaSettingsProvider.ttsModel = newSettings.ttsModel
   }
 }

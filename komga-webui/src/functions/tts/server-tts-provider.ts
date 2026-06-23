@@ -26,9 +26,13 @@ interface ApiResponsePayload {
   boundaries?: APIBoundary[]
 }
 
-// Shape returned by the OpenAI-compatible GET /v1/voices convention
+// Different providers disagree on what a "voice" entry looks like under the otherwise
+// OpenAI-compatible GET /v1/voices convention: Qwen3-TTS-API returns plain id strings,
+// while Kokoro-FastAPI returns `{ id, name? }` objects.
+type VoiceEntry = string | { id: string, name?: string }
+
 interface VoicesResponsePayload {
-  voices?: string[]
+  voices?: VoiceEntry[]
   languages?: string[]
 }
 
@@ -51,7 +55,7 @@ export class ServerTTSProvider implements TTSProvider {
   private _state: TTSState = 'idle'
 
   private defaultVoiceId = ''
-  private cachedVoices: string[] = []
+  private cachedVoices: { id: string, name: string }[] = []
   private languages: string[] = []
   private metadataLoaded = false
 
@@ -90,9 +94,9 @@ export class ServerTTSProvider implements TTSProvider {
     await this.loadMetadata()
 
     if (this.cachedVoices.length) {
-      return this.cachedVoices.map((id) => ({
+      return this.cachedVoices.map(({ id, name }) => ({
         id,
-        name: id,
+        name,
         language: 'multi',
         provider: 'server',
         isDefault: id === this.defaultVoiceId,
@@ -124,7 +128,9 @@ export class ServerTTSProvider implements TTSProvider {
       const response = await fetch(VOICES_URL(), { credentials: 'include' })
       if (!response.ok) return
       const payload: VoicesResponsePayload = await response.json()
-      this.cachedVoices = payload.voices ?? []
+      this.cachedVoices = (payload.voices ?? []).map((v) =>
+        typeof v === 'string' ? { id: v, name: v } : { id: v.id, name: v.name || v.id },
+      )
       this.languages = payload.languages ?? []
     } catch (e) {
       // leave caches empty; getVoices() falls back to a generic guess

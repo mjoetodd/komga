@@ -14,6 +14,7 @@ data class SettingsDto(
   val ttsProviderUrl: String?,
   val ttsProviderApiKeySet: Boolean,
   val ttsDefaultVoice: String?,
+  val ttsModel: String?,
 )
 
 data class SettingMultiSource<T>(

@@ -46,6 +46,17 @@
     </v-slider>
 
     <v-select
+      v-model="chunkMode"
+      :items="chunkModes"
+      label="Chunk Size"
+      hint="Paragraph mode sends fewer, larger requests to the TTS provider - faster overall, at the cost of highlighting a whole paragraph at a time instead of one sentence."
+      persistent-hint
+      outlined
+      dense
+      class="mb-2"
+    />
+
+    <v-select
       v-model="highlightMode"
       :items="highlightModes"
       label="Highlight Mode"
@@ -100,9 +111,13 @@ export default Vue.extend({
       loadingVoices: false,
       serverConfigured: true,
       highlightModes: [
-        { text: 'Sentence highlighting', value: 'sentence' },
-        { text: 'Word & sentence highlighting', value: 'word' },
+        { text: 'Segment highlighting', value: 'sentence' },
+        { text: 'Word & segment highlighting', value: 'word' },
         { text: 'No highlighting', value: 'off' },
+      ],
+      chunkModes: [
+        { text: 'Sentence', value: 'sentence' },
+        { text: 'Paragraph', value: 'paragraph' },
       ],
     }
   },
@@ -137,6 +152,14 @@ export default Vue.extend({
       },
       set(val: string) {
         this.$emit('update-setting', { key: 'ttsHighlightMode', value: val })
+      },
+    },
+    chunkMode: {
+      get(): string {
+        return this.settings.ttsChunkMode || 'sentence'
+      },
+      set(val: string) {
+        this.$emit('update-setting', { key: 'ttsChunkMode', value: val })
       },
     },
     language: {
