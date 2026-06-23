@@ -132,7 +132,7 @@
 
     <header id="headerMenu"/>
 
-    <div id="D2Reader-Container" style="height: 100vh" :class="appearanceClass('bg')">
+    <div id="D2Reader-Container" style="height: 100vh">
       <main tabindex=-1 id="iframe-wrapper" style="height: 100vh" @click="clickThrough">
         <div id="reader-loading"></div>
         <div id="reader-error"></div>
@@ -169,7 +169,7 @@
     </footer>
 
     <v-container fluid class="full-width" style="position: fixed; bottom: 0; font-size: .85rem"
-                 :class="appearanceClass()"
+                 :style="{ color: activeThemeVariant.text, backgroundColor: activeThemeVariant.uiChrome }"
                  v-if="!verticalScroll"
     >
       <v-row>
@@ -231,18 +231,11 @@
             </v-list-item>
 
             <v-list-item>
-              <v-list-item-title>{{ $t('epubreader.settings.viewing_theme') }}</v-list-item-title>
-              <v-btn
-                v-for="(a, i) in appearances"
-                :key="i"
-                :value="a.value"
-                :color="a.color"
-                :class="a.class"
-                class="mx-1"
-                @click="appearance = a.value"
-              >
-                <v-icon v-if="appearance === a.value">mdi-check</v-icon>
-              </v-btn>
+              <v-list-item-title>Reading Theme</v-list-item-title>
+              <epub-theme-selector
+                :theme-id="readerThemeId"
+                @update-setting="updateReaderSetting"
+              />
             </v-list-item>
 
             <v-list-item v-if="!fixedLayout">
@@ -313,6 +306,7 @@
       :state="ttsState"
       :sentence-text="ttsSentenceText"
       :speed="settings.ttsRate"
+      :theme-variant="activeThemeVariant"
       @toggle-play="toggleTtsPlay"
       @stop="stopTTS"
       @prev="skipTtsPrev"
@@ -370,6 +364,9 @@ import TtsSettingsPanel from '@/components/TtsSettingsPanel.vue'
 import TtsPlaybackBar from '@/components/TtsPlaybackBar.vue'
 import { TTSController } from '@/functions/tts/tts-controller'
 import { TTSProviderRegistry } from '@/functions/tts/tts-provider-registry'
+import EpubThemeSelector from '@/components/EpubThemeSelector.vue'
+import { EPUB_THEMES, DEFAULT_EPUB_THEME_ID, getEpubTheme } from '@/functions/epub-themes'
+import { EpubThemeVariant } from '@/types/epub'
 
 export default Vue.extend({
   name: 'EpubReader',
@@ -380,6 +377,7 @@ export default Vue.extend({
     SettingsSwitch,
     TtsSettingsPanel,
     TtsPlaybackBar,
+    EpubThemeSelector,
   },
   data: function () {
     return {
@@ -409,26 +407,6 @@ export default Vue.extend({
         {
           text: this.$t('enums.epubreader.reading_direction.rtl').toString(),
           value: 'rtl',
-        },
-      ],
-      appearances: [
-        {
-          text: this.$t('enums.epubreader.appearances.day').toString(),
-          value: 'readium-default-on',
-          color: 'white',
-          class: 'black--text',
-        },
-        {
-          text: this.$t('enums.epubreader.appearances.sepia').toString(),
-          value: 'readium-sepia-on',
-          color: '#faf4e8',
-          class: 'black--text',
-        },
-        {
-          text: this.$t('enums.epubreader.appearances.night').toString(),
-          value: 'readium-night-on',
-          color: 'black',
-          class: 'white--text',
         },
       ],
       columnCounts: [
@@ -464,7 +442,15 @@ export default Vue.extend({
         ttsRate: 1.0,
         ttsHighlightMode: 'sentence',
         ttsLanguage: '',
+        // 'sentence' sends one sentence per TTS request; 'paragraph' batches a whole
+        // paragraph per request to cut down round trips to the (often self-hosted) provider.
+        ttsChunkMode: 'sentence',
+        // Reading theme (background/text/chrome/highlight colors, layered on top of the
+        // existing ReadiumCSS day/sepia/night appearance, which only controls in-book text
+        // color inversion)
+        themeId: DEFAULT_EPUB_THEME_ID,
       },
+      themeColorMetaOriginal: undefined as string | undefined,
       navigationOptions: [
         {text: this.$t('epubreader.settings.navigation_options.buttons').toString(), value: 'button'},
         {text: this.$t('epubreader.settings.navigation_options.click').toString(), value: 'click'},
@@ -509,6 +495,10 @@ export default Vue.extend({
       this.ttsController.stop()
       this.ttsController = null
     }
+    const meta = document.querySelector('meta[name="theme-color"]')
+    if (meta && this.themeColorMetaOriginal !== undefined) {
+      meta.setAttribute('content', this.themeColorMetaOriginal)
+    }
   },
   destroyed() {
     this.$vuetify.rtl = (this.$t('common.locale_rtl') === 'true')
@@ -520,6 +510,10 @@ export default Vue.extend({
   async mounted() {
     Object.assign(this.settings, this.$store.state.persistedState.epubreader)
     this.settings.alwaysFullscreen = this.$store.state.persistedState.webreader.alwaysFullscreen
+    if (!EPUB_THEMES.map(t => t.id).includes(this.settings.themeId)) {
+      this.settings.themeId = DEFAULT_EPUB_THEME_ID
+    }
+    this.themeColorMetaOriginal = document.querySelector('meta[name="theme-color"]')?.getAttribute('content') ?? undefined
 
     this.fontFamiliesAdditional = await this.$komgaFonts.getFamilies()
     this.fontFamilies = [...this.fontFamilyDefault, ...this.fontFamiliesAdditional]
@@ -593,18 +587,6 @@ export default Vue.extend({
         return getBookTitleCompact(this.book.metadata.title, this.series.metadata.title, this.book.oneshot ? undefined : this.book.metadata.number)
       return this.book?.metadata?.title
     },
-    appearance: {
-      get: function (): string {
-        return this.settings.appearance
-      },
-      set: function (color: string): void {
-        if (this.appearances.map(x => x.value).includes(color)) {
-          this.settings.appearance = color
-          this.d2Reader.applyUserSettings({appearance: color})
-          this.$store.commit('setEpubreaderSettings', this.settings)
-        }
-      },
-    },
     verticalScroll: {
       get: function (): boolean {
         return this.settings.verticalScroll
@@ -613,6 +595,7 @@ export default Vue.extend({
         this.settings.verticalScroll = value
         this.d2Reader.applyUserSettings({verticalScroll: value})
         this.$store.commit('setEpubreaderSettings', this.settings)
+        this.ttsController?.setReadingMode(value ? 'scroll' : 'paginate')
       },
     },
     columnCount: {
@@ -701,6 +684,35 @@ export default Vue.extend({
         this.d2Reader.applyUserSettings({fontFamily: value})
         this.$store.commit('setEpubreaderSettings', this.settings)
       },
+    },
+    readerThemeId: {
+      get: function (): string {
+        return this.settings.themeId ?? DEFAULT_EPUB_THEME_ID
+      },
+      set: function (value: string): void {
+        if (EPUB_THEMES.map(t => t.id).includes(value)) {
+          this.settings.themeId = value
+          this.$store.commit('setEpubreaderSettings', this.settings)
+        }
+      },
+    },
+    // Layered on top of the existing day/sepia/night ReadiumCSS appearance: that system
+    // inverts the in-book text colors, this one only drives the reader's outer chrome
+    // (background behind the iframe, TTS controls, sentence highlight color) and follows
+    // the app-wide dark mode toggle for its light/dark variant.
+    activeThemeVariant(): EpubThemeVariant {
+      const theme = getEpubTheme(this.readerThemeId as any)
+      return this.$vuetify.theme.dark ? theme.dark : theme.light
+    },
+  },
+  watch: {
+    // Single watcher covers both theme switches and the app-wide dark/light mode toggle,
+    // since both flow into this one computed value.
+    activeThemeVariant: {
+      handler(variant: EpubThemeVariant) {
+        this.applyEpubThemeVars(variant)
+      },
+      immediate: true,
     },
   },
   methods: {
@@ -960,11 +972,6 @@ export default Vue.extend({
     updateDirection(dir: string) {
       this.effectiveDirection = dir
     },
-    appearanceClass(suffix?: string): string {
-      let c = this.appearance.replace('readium-', '').replace('-on', '').replace('default', 'day')
-      if (suffix) c += `-${suffix}`
-      return c
-    },
     goToEntry(tocEntry: TocEntry) {
       if (tocEntry.href !== undefined) {
         const url = new URL(tocEntry.href)
@@ -1009,12 +1016,15 @@ export default Vue.extend({
           query: {context: this.context.origin, contextId: this.context.id},
         })
     },
+    // Cycles the 5 reading themes (background/text/chrome/highlight), which now fully
+    // replace the old 3-option day/sepia/night picker via the ReadiumCSS custom-colors
+    // override (see applyEpubThemeVarsToIframe).
     cycleViewingTheme() {
-      const i = (this.appearances.map(x => x.value).indexOf(this.settings.appearance) + 1) % this.appearances.length
-      const newValue = this.appearances[i]
-      this.appearance = newValue.value
-      const text = this.$t(newValue.text)
-      this.sendNotification(`${this.$t('epubreader.settings.viewing_theme')}: ${text}`)
+      const ids = EPUB_THEMES.map(t => t.id)
+      const i = (ids.indexOf(this.readerThemeId) + 1) % ids.length
+      const theme = EPUB_THEMES[i]
+      this.readerThemeId = theme.id
+      this.sendNotification(`Reading Theme: ${theme.label}`)
     },
     changeLayout(scroll: boolean) {
       this.verticalScroll = scroll
@@ -1049,6 +1059,8 @@ export default Vue.extend({
         rate: this.settings.ttsRate,
         speechLanguage: this.settings.ttsLanguage || undefined,
         highlightMode: this.settings.ttsHighlightMode,
+        chunkMode: this.settings.ttsChunkMode,
+        readingMode: this.settings.verticalScroll ? 'scroll' : 'paginate',
         onStateChange: (state) => {
           this.ttsState = state
           this.ttsActive = state !== 'idle'
@@ -1087,15 +1099,45 @@ export default Vue.extend({
           iframe.addEventListener('load', () => {
             if (iframe.contentDocument) {
               this.ttsController?.setDocument(iframe.contentDocument)
+              this.applyEpubThemeVarsToIframe(iframe.contentDocument)
             }
           }, { once: true })
         } else {
           this.ttsController.setDocument(iframe.contentDocument)
+          this.applyEpubThemeVarsToIframe(iframe.contentDocument)
         }
       }
     },
     getReaderIframe(): HTMLIFrameElement | null {
       return document.querySelector('#iframe-wrapper iframe')
+    },
+    // Sets theme CSS vars on the host document (read by TtsPlaybackBar, which lives outside
+    // the iframe) and on the current book iframe document (read by the highlight stylesheet
+    // injected by TTSHighlighter). The iframe document is replaced on every chapter/page
+    // navigation, so this must be re-applied there each time, not just once on theme change.
+    applyEpubThemeVars(variant: EpubThemeVariant) {
+      const root = document.documentElement
+      root.style.setProperty('--epub-bg', variant.background)
+      root.style.setProperty('--epub-text', variant.text)
+      root.style.setProperty('--epub-ui-chrome', variant.uiChrome)
+      root.style.setProperty('--epub-highlight', variant.highlight)
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', variant.background)
+
+      const iframe = this.getReaderIframe()
+      if (iframe?.contentDocument) this.applyEpubThemeVarsToIframe(iframe.contentDocument)
+    },
+    applyEpubThemeVarsToIframe(doc: Document) {
+      const variant = this.activeThemeVariant as EpubThemeVariant
+      doc.documentElement.style.setProperty('--epub-bg', variant.background)
+      doc.documentElement.style.setProperty('--epub-text', variant.text)
+      doc.documentElement.style.setProperty('--epub-ui-chrome', variant.uiChrome)
+      doc.documentElement.style.setProperty('--epub-highlight', variant.highlight)
+      // ReadiumCSS's "custom colors" override submodule (ReadiumCSS-after.css.resource):
+      // setting these forces the actual book background/text, overriding whatever the
+      // day/sepia/night appearance would otherwise have painted - this is what makes the
+      // reading theme apply to the book content itself, not just the outer chrome.
+      doc.documentElement.style.setProperty('--USER__backgroundColor', variant.background)
+      doc.documentElement.style.setProperty('--USER__textColor', variant.text)
     },
     toggleTtsPlayback() {
       this.initTTSController()
@@ -1145,6 +1187,10 @@ export default Vue.extend({
         this.ttsController.setSpeed(this.settings.ttsRate)
       }
     },
+    updateReaderSetting({ key, value }: { key: string; value: any }) {
+      this.settings[key] = value
+      this.$store.commit('setEpubreaderSettings', this.settings)
+    },
     updateTtsSetting({ key, value }: { key: string; value: any }) {
       this.settings[key] = value
       this.$store.commit('setEpubreaderSettings', this.settings)
@@ -1154,6 +1200,8 @@ export default Vue.extend({
           this.ttsController.setSpeed(value)
         } else if (key === 'ttsHighlightMode') {
           this.ttsController.setHighlightMode(value)
+        } else if (key === 'ttsChunkMode') {
+          this.ttsController.setChunkMode(value)
         } else if (key === 'ttsVoiceId') {
           const registry = TTSProviderRegistry.getInstance()
           registry.getActiveProvider().getVoices().then((voices) => {
@@ -1186,6 +1234,12 @@ export default Vue.extend({
 </script>
 <style src="@d-i-t-a/reader/dist/reader.css"/>
 <style scoped>
+#root {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  background-color: var(--epub-bg, inherit);
+}
+
 .settings {
   z-index: 2;
 }

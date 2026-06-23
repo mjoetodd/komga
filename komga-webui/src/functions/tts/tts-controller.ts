@@ -21,6 +21,14 @@ export interface TTSControllerOptions {
   // `locale`, which is only used for client-side sentence segmentation (e.g. "en")
   speechLanguage?: string
   highlightMode?: 'sentence' | 'word' | 'off'
+  // 'sentence' sends one sentence per TTS request; 'paragraph' batches a whole paragraph
+  // into one request to cut down round trips to the TTS provider. Highlighting (both the
+  // current-segment highlight and word highlighting) tracks whichever granularity is active.
+  chunkMode?: 'sentence' | 'paragraph'
+  // 'paginate' turns the page via onAdvancePage when the next sentence is off-screen;
+  // 'scroll' instead scrolls the sentence to the vertical center of the iframe's own
+  // viewport, since onAdvancePage's page-turn doesn't apply to continuous-scroll layouts.
+  readingMode?: 'paginate' | 'scroll'
   onStateChange?: (state: TTSState) => void
   onChapterEnd?: () => void
   // Called when the sentence about to be read is off-screen (e.g. a later page in a
@@ -48,6 +56,8 @@ export class TTSController {
   private voice: TTSVoice | undefined = undefined
   private speechLanguage: string | undefined = undefined
   private highlightMode: 'sentence' | 'word' | 'off' = 'sentence'
+  private chunkMode: 'sentence' | 'paragraph' = 'sentence'
+  private readingMode: 'paginate' | 'scroll' = 'paginate'
 
   // Callbacks
   private onStateChange?: (state: TTSState) => void
@@ -65,6 +75,8 @@ export class TTSController {
     if (options.voice !== undefined) this.voice = options.voice
     if (options.speechLanguage !== undefined) this.speechLanguage = options.speechLanguage
     if (options.highlightMode !== undefined) this.highlightMode = options.highlightMode
+    if (options.chunkMode !== undefined) this.chunkMode = options.chunkMode
+    if (options.readingMode !== undefined) this.readingMode = options.readingMode
     if (options.onStateChange) this.onStateChange = options.onStateChange
     if (options.onChapterEnd) this.onChapterEnd = options.onChapterEnd
     if (options.onAdvancePage) this.onAdvancePage = options.onAdvancePage
@@ -89,7 +101,7 @@ export class TTSController {
     this.highlighter.setDocument(doc)
 
     // Extract new text segments
-    const extraction = TextExtractor.extract(doc, this.locale)
+    const extraction = TextExtractor.extract(doc, this.locale, this.chunkMode)
     this.sentences = extraction.sentences
     this.currentSentenceIndex = 0
 
@@ -106,10 +118,29 @@ export class TTSController {
     this.currentSentenceIndex = this.findFirstVisibleSentenceIndex()
   }
 
+  // In scroll mode, D2Reader resizes the <iframe> itself to the book content's full height
+  // and the HOST page scrolls past it - the iframe has no internal scroll/viewport of its
+  // own (its "innerHeight" is the entire chapter, not what's actually on screen). So
+  // visibility and scrolling in that mode must be measured against the host window, offset
+  // by where the iframe element sits on the host page. `frameElement` is only accessible
+  // same-origin, which holds here since the manifest is served from Komga's own origin.
+  private getIframeElement(): HTMLIFrameElement | null {
+    const win = this.doc?.defaultView as (Window & { frameElement?: Element }) | null | undefined
+    return (win?.frameElement as HTMLIFrameElement) ?? null
+  }
+
   private isRangeVisible(range: Range): boolean {
+    const rect = range.getBoundingClientRect()
+
+    if (this.readingMode === 'scroll') {
+      const iframeEl = this.getIframeElement()
+      if (!iframeEl) return false
+      const iframeTop = iframeEl.getBoundingClientRect().top
+      return (iframeTop + rect.bottom) > 0 && (iframeTop + rect.top) < window.innerHeight
+    }
+
     const win = this.doc?.defaultView
     if (!win) return false
-    const rect = range.getBoundingClientRect()
     return rect.bottom > 0 && rect.top < win.innerHeight && rect.right > 0 && rect.left < win.innerWidth
   }
 
@@ -117,6 +148,22 @@ export class TTSController {
     const container = range.startContainer
     const element = container.nodeType === Node.TEXT_NODE ? container.parentElement : (container as Element)
     element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
+  // Scroll mode has no "page" to turn, so an off-screen sentence must be brought to the
+  // vertical center of the viewport instead. Rather than recompute which ancestor box
+  // actually owns the scroll (window? html? some wrapper?) and risk targeting the wrong
+  // one, delegate to the native Element.scrollIntoView - per the CSSOM View spec, it walks
+  // every scrollable ancestor box and correctly crosses from the iframe's document up into
+  // the host page's own scrolling element, regardless of which one that turns out to be.
+  private scrollActiveSentenceToCenter(range: Range) {
+    const container = range.startContainer
+    const element = container.nodeType === Node.TEXT_NODE ? container.parentElement : (container as Element)
+    element?.scrollIntoView({
+      // At 2x+ speed, smooth-scroll animations queue up behind speech and lag the highlight.
+      behavior: this.rate >= 2 ? 'instant' : 'smooth',
+      block: 'center',
+    } as ScrollIntoViewOptions)
   }
 
   private findFirstVisibleSentenceIndex(): number {
@@ -268,6 +315,34 @@ export class TTSController {
     }
   }
 
+  setReadingMode(mode: 'paginate' | 'scroll') {
+    this.readingMode = mode
+  }
+
+  // Changing chunk granularity invalidates the current segment boundaries entirely (a
+  // sentence index doesn't correspond to anything meaningful once segments are paragraphs,
+  // and vice versa), so this re-extracts from the current document and repositions to
+  // whatever's visible now, the same way an initial syncToVisiblePosition() would.
+  setChunkMode(mode: 'sentence' | 'paragraph') {
+    if (this.chunkMode === mode || !this.doc) {
+      this.chunkMode = mode
+      return
+    }
+    this.chunkMode = mode
+
+    const wasSpeaking = this.state === 'speaking'
+    this.cancelActiveSpeech()
+    this.clearPrefetchCache()
+    this.highlighter.clearAll()
+
+    const extraction = TextExtractor.extract(this.doc, this.locale, this.chunkMode)
+    this.sentences = extraction.sentences
+    this.currentSentenceIndex = this.findFirstVisibleSentenceIndex()
+
+    if (wasSpeaking) this.play()
+    else this.notifyStateChange()
+  }
+
   setHighlightMode(mode: 'sentence' | 'word' | 'off') {
     this.highlightMode = mode
     if (mode === 'off') {
@@ -311,17 +386,23 @@ export class TTSController {
 
     const sentenceRange = TextExtractor.createRangeFromPositions(this.doc, sentence.domPositions)
     if (sentenceRange) {
-      // Keep the visible page in sync with what's being read: if this sentence is off-screen
-      // (a later page in a paginated/columned layout), turn the page forward; otherwise
-      // (e.g. continuous scroll) just scroll it into view.
+      // Keep the visible viewport in sync with what's being read. In scroll mode there's no
+      // "page" to turn, so an off-screen sentence is brought to the center of the iframe's
+      // own viewport directly; onAdvancePage (page-turn) only makes sense in paginate mode.
+      // In paginate mode, an already-visible sentence needs no scroll action at all - D2Reader
+      // already owns column/page positioning there, and calling the native scrollIntoView on
+      // an element that's technically already on-screen is exactly what was snapping
+      // multi-column pages flush left/right instead of leaving them where D2Reader put them.
       if (!this.isRangeVisible(sentenceRange)) {
-        if (this.onAdvancePage) {
+        if (this.readingMode === 'scroll') {
+          this.scrollActiveSentenceToCenter(sentenceRange)
+        } else if (this.onAdvancePage) {
           this.onAdvancePage()
         } else {
           this.scrollRangeIntoView(sentenceRange)
         }
-      } else {
-        this.scrollRangeIntoView(sentenceRange)
+      } else if (this.readingMode === 'scroll') {
+        this.scrollActiveSentenceToCenter(sentenceRange)
       }
 
       if (this.highlightMode !== 'off') {

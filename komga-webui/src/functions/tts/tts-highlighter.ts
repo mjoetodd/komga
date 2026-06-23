@@ -22,26 +22,26 @@ export class TTSHighlighter {
     const id = 'komga-tts-styles'
     if (doc.getElementById(id)) return
 
+    // --epub-highlight is set on this document's root by EpubReader's theme watcher
+    // (komga-webui/src/functions/epub-themes.ts) and tracks the active reading theme, so the
+    // segment highlight stays legible across all 20 themes x light/dark.
+    //
+    // The word highlight intentionally does NOT reuse --epub-highlight: it renders on top of
+    // (a strict subset of) the segment highlight, so using the same color there makes it
+    // completely invisible - the word range would just repaint with an identical color over
+    // itself. `::highlight()` only supports a small set of properties (no `filter`, notably),
+    // so a fixed, theme-independent, high-contrast color is the simplest way to guarantee the
+    // word highlight is visibly distinct from the segment highlight underneath it across all
+    // themes, light or dark.
     const style = doc.createElement('style')
     style.id = id
     style.textContent = `
       ::highlight(${SENTENCE_HIGHLIGHT}) {
-        background-color: rgba(66, 133, 244, 0.18);
+        background-color: var(--epub-highlight, rgba(66, 133, 244, 0.4));
       }
       ::highlight(${WORD_HIGHLIGHT}) {
-        background-color: rgba(66, 133, 244, 0.38);
-      }
-      .readium-night-on ::highlight(${SENTENCE_HIGHLIGHT}) {
-        background-color: rgba(138, 180, 248, 0.22);
-      }
-      .readium-night-on ::highlight(${WORD_HIGHLIGHT}) {
-        background-color: rgba(138, 180, 248, 0.45);
-      }
-      .readium-sepia-on ::highlight(${SENTENCE_HIGHLIGHT}) {
-        background-color: rgba(183, 128, 64, 0.18);
-      }
-      .readium-sepia-on ::highlight(${WORD_HIGHLIGHT}) {
-        background-color: rgba(183, 128, 64, 0.38);
+        background-color: rgba(255, 196, 0, 0.65);
+        color: #1A1A1A;
       }
     `
     doc.head.appendChild(style)
@@ -69,10 +69,15 @@ export class TTSHighlighter {
   highlightWord(range: Range) {
     if (!this.supported) return
     const Highlight = (this.win as any).Highlight
-    this.win!.CSS.highlights.set(WORD_HIGHLIGHT, new Highlight(range))
-
-    const container = range.startContainer
-    const element = container.nodeType === Node.TEXT_NODE ? container.parentElement : (container as Element)
-    element?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const highlight = new Highlight(range)
+    // Word range is a strict subset of the segment range and must paint on top of it where
+    // they overlap - the Highlight API resolves overlaps by priority, default 0 for both.
+    highlight.priority = 1
+    this.win!.CSS.highlights.set(WORD_HIGHLIGHT, highlight)
+    // No scrollIntoView here deliberately: TTSController already keeps the active
+    // sentence/paragraph on screen at the segment level (readingMode-aware: page-turn in
+    // paginate mode, centered scroll in scroll mode). A second, independent scrollIntoView
+    // firing on every single word boundary - many times per segment - fought with D2Reader's
+    // own column-scroll positioning in multi-column paginated mode.
   }
 }
