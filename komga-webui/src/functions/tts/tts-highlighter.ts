@@ -9,8 +9,15 @@ const WORD_HIGHLIGHT = 'komga-tts-word'
 export class TTSHighlighter {
   private win: (Window & { CSS: any }) | null = null
   private supported = false
+  // Persistent Highlight objects: spec-correct pattern is to mutate a single registered
+  // Highlight (clear + add) rather than delete + new Highlight + set on every sentence.
+  // iOS Safari may treat delete(name)+set(same-name) as a net no-op and skip repaint.
+  private sentenceHighlight: any = null
+  private wordHighlight: any = null
 
   setDocument(doc: Document) {
+    this.sentenceHighlight = null
+    this.wordHighlight = null
     this.win = doc.defaultView as any
     this.supported = !!(this.win?.CSS?.highlights && (this.win as any).Highlight)
     if (this.supported) {
@@ -53,34 +60,46 @@ export class TTSHighlighter {
   }
 
   clearSentenceHighlight() {
-    if (this.supported) this.win!.CSS.highlights.delete(SENTENCE_HIGHLIGHT)
+    if (!this.supported) return
+    this.sentenceHighlight?.clear()
+    this.win!.CSS.highlights.delete(SENTENCE_HIGHLIGHT)
+    this.sentenceHighlight = null
   }
 
   clearWordHighlight() {
-    if (this.supported) this.win!.CSS.highlights.delete(WORD_HIGHLIGHT)
+    if (!this.supported) return
+    this.wordHighlight?.clear()
+    this.win!.CSS.highlights.delete(WORD_HIGHLIGHT)
+    this.wordHighlight = null
   }
 
   highlightSentence(range: Range) {
     if (!this.supported) return
     const Highlight = (this.win as any).Highlight
-    // Safari/WebKit has a known repaint bug where CSS.highlights.set() on a name that
-    // already has a registered Highlight doesn't reliably invalidate the old range's paint -
-    // the previous highlight visually lingers alongside the new one. An explicit delete()
-    // first forces it to actually repaint instead of relying on set() to replace in place.
-    this.win!.CSS.highlights.delete(SENTENCE_HIGHLIGHT)
-    this.win!.CSS.highlights.set(SENTENCE_HIGHLIGHT, new Highlight(range))
+    if (!this.sentenceHighlight) {
+      this.sentenceHighlight = new Highlight()
+      this.win!.CSS.highlights.set(SENTENCE_HIGHLIGHT, this.sentenceHighlight)
+    }
+    this.sentenceHighlight.clear()
+    this.sentenceHighlight.add(range)
+    // iOS Safari doesn't reliably repaint ::highlight() when ranges are mutated in-place.
+    // A synchronous layout query forces WebKit to flush pending style/paint work immediately.
+    // Applied at sentence level only — word boundary fires are too frequent to afford a reflow.
+    void (this.win!.document.documentElement as HTMLElement).offsetHeight
   }
 
   highlightWord(range: Range) {
     if (!this.supported) return
     const Highlight = (this.win as any).Highlight
-    const highlight = new Highlight(range)
-    // Word range is a strict subset of the segment range and must paint on top of it where
-    // they overlap - the Highlight API resolves overlaps by priority, default 0 for both.
-    highlight.priority = 1
-    // See highlightSentence() above re: the explicit delete() for Safari/WebKit.
-    this.win!.CSS.highlights.delete(WORD_HIGHLIGHT)
-    this.win!.CSS.highlights.set(WORD_HIGHLIGHT, highlight)
+    if (!this.wordHighlight) {
+      this.wordHighlight = new Highlight()
+      // Word range is a strict subset of the segment range and must paint on top of it where
+      // they overlap - the Highlight API resolves overlaps by priority, default 0 for both.
+      this.wordHighlight.priority = 1
+      this.win!.CSS.highlights.set(WORD_HIGHLIGHT, this.wordHighlight)
+    }
+    this.wordHighlight.clear()
+    this.wordHighlight.add(range)
     // No scrollIntoView here deliberately: TTSController already keeps the active
     // sentence/paragraph on screen at the segment level (readingMode-aware: page-turn in
     // paginate mode, centered scroll in scroll mode). A second, independent scrollIntoView
