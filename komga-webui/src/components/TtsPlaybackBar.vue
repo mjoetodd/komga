@@ -16,7 +16,7 @@
       </v-card>
 
       <v-card v-else class="komga-tts-playback-bar elevation-8" rounded="lg" :style="barStyle">
-        <v-row no-gutters align="center" class="px-4 py-2">
+        <v-row no-gutters align="center" class="bar-row px-2 px-sm-4 py-2">
 
           <!-- Minimize Button -->
           <v-col cols="auto" class="d-flex align-center">
@@ -27,47 +27,49 @@
 
           <!-- Prev Button -->
           <v-col cols="auto" class="d-flex align-center">
-            <v-btn icon @click="$emit('prev')" title="Previous sentence">
+            <v-btn icon small @click="$emit('prev')" title="Previous sentence">
               <v-icon>mdi-skip-previous</v-icon>
             </v-btn>
           </v-col>
 
           <!-- Play/Pause Button -->
           <v-col cols="auto" class="d-flex align-center mx-1">
-            <v-btn fab small color="primary" @click="$emit('toggle-play')" :title="state === 'speaking' ? 'Pause' : 'Play'">
+            <v-btn fab x-small color="primary" @click="$emit('toggle-play')" :title="state === 'speaking' ? 'Pause' : 'Play'">
               <v-icon>{{ state === 'speaking' ? 'mdi-pause' : 'mdi-play' }}</v-icon>
             </v-btn>
           </v-col>
 
           <!-- Next Button -->
           <v-col cols="auto" class="d-flex align-center">
-            <v-btn icon @click="$emit('next')" title="Next sentence">
+            <v-btn icon small @click="$emit('next')" title="Next sentence">
               <v-icon>mdi-skip-next</v-icon>
             </v-btn>
           </v-col>
 
-          <!-- Preview Text / Sentence -->
-          <v-col class="px-4 text-truncate text-body-2 font-weight-medium">
+          <!-- Preview Text / Sentence - dropped below the 'sm' breakpoint: the active
+               sentence/paragraph is already highlighted in the page itself, and this was the
+               main thing pushing the bar's minimum width past what fits on a phone screen. -->
+          <v-col class="preview-col d-none d-sm-flex px-4 text-truncate text-body-2 font-weight-medium">
             <span class="preview-label text-caption d-block" style="opacity: 0.7">Reading:</span>
             <span class="preview-text" :title="sentenceText">{{ sentenceText || '...' }}</span>
           </v-col>
 
           <!-- Speed Display & Controls -->
-          <v-col cols="auto" class="d-flex align-center mr-2">
-            <v-btn icon small @click="$emit('speed-down')" title="Slower">
+          <v-col cols="auto" class="d-flex align-center mr-1 mr-sm-2">
+            <v-btn icon x-small @click="$emit('speed-down')" title="Slower">
               <v-icon small>mdi-minus</v-icon>
             </v-btn>
-            <span class="mx-2 text-caption font-weight-bold" style="min-width: 32px; text-align: center;">
+            <span class="mx-1 text-caption font-weight-bold" style="min-width: 28px; text-align: center;">
               {{ speed.toFixed(1) }}x
             </span>
-            <v-btn icon small @click="$emit('speed-up')" title="Faster">
+            <v-btn icon x-small @click="$emit('speed-up')" title="Faster">
               <v-icon small>mdi-plus</v-icon>
             </v-btn>
           </v-col>
 
           <!-- Stop/Close Button -->
-          <v-col cols="auto" class="d-flex align-center pl-2 border-left">
-            <v-btn icon color="error" @click="$emit('stop')" title="Stop read aloud">
+          <v-col cols="auto" class="d-flex align-center pl-1 pl-sm-2 border-left">
+            <v-btn icon small color="error" @click="$emit('stop')" title="Stop read aloud">
               <v-icon>mdi-stop</v-icon>
             </v-btn>
           </v-col>
@@ -173,6 +175,14 @@ export default Vue.extend({
   backdrop-filter: blur(12px);
   border: 1px solid rgba(128, 128, 128, 0.15);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.bar-row {
+  flex-wrap: nowrap;
+}
+
+.preview-col {
+  min-width: 0;
 }
 
 .komga-tts-pill {

@@ -63,6 +63,11 @@ export class TTSHighlighter {
   highlightSentence(range: Range) {
     if (!this.supported) return
     const Highlight = (this.win as any).Highlight
+    // Safari/WebKit has a known repaint bug where CSS.highlights.set() on a name that
+    // already has a registered Highlight doesn't reliably invalidate the old range's paint -
+    // the previous highlight visually lingers alongside the new one. An explicit delete()
+    // first forces it to actually repaint instead of relying on set() to replace in place.
+    this.win!.CSS.highlights.delete(SENTENCE_HIGHLIGHT)
     this.win!.CSS.highlights.set(SENTENCE_HIGHLIGHT, new Highlight(range))
   }
 
@@ -73,6 +78,8 @@ export class TTSHighlighter {
     // Word range is a strict subset of the segment range and must paint on top of it where
     // they overlap - the Highlight API resolves overlaps by priority, default 0 for both.
     highlight.priority = 1
+    // See highlightSentence() above re: the explicit delete() for Safari/WebKit.
+    this.win!.CSS.highlights.delete(WORD_HIGHLIGHT)
     this.win!.CSS.highlights.set(WORD_HIGHLIGHT, highlight)
     // No scrollIntoView here deliberately: TTSController already keeps the active
     // sentence/paragraph on screen at the segment level (readingMode-aware: page-turn in
