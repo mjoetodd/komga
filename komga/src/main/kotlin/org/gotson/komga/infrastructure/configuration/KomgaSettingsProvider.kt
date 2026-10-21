@@ -155,6 +155,13 @@ class KomgaSettingsProvider(
         serverSettingsDao.deleteSetting(Settings.TTS_MODEL.name)
       field = value
     }
+
+  var nextUiAsDefault: Boolean =
+    serverSettingsDao.getSettingByKey(Settings.NEXTUI_AS_DEFAULT.name, Boolean::class.java) ?: false
+    set(value) {
+      serverSettingsDao.saveSetting(Settings.NEXTUI_AS_DEFAULT.name, value)
+      field = value
+    }
 }
 
 private enum class Settings {
@@ -173,4 +180,5 @@ private enum class Settings {
   TTS_PROVIDER_API_KEY,
   TTS_DEFAULT_VOICE,
   TTS_MODEL,
+  NEXTUI_AS_DEFAULT,
 }

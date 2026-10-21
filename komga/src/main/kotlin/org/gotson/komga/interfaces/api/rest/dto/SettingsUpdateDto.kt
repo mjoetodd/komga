@@ -52,6 +52,8 @@ class SettingsUpdateDto {
       isSet[prop.name] = true
     }
 
+  var nextUiAsDefault: Boolean? = null
+
   var ttsProviderUrl: String?
     by Delegates.observable(null) { prop, _, _ ->
       isSet[prop.name] = true

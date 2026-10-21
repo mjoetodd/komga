@@ -13,6 +13,7 @@ import org.apache.commons.compress.archivers.zip.Zip64Mode
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream
 import org.apache.commons.io.IOUtils
+import org.gotson.komga.application.query.UnpagedSorted
 import org.gotson.komga.application.tasks.HIGHEST_PRIORITY
 import org.gotson.komga.application.tasks.HIGH_PRIORITY
 import org.gotson.komga.application.tasks.TaskEmitter
@@ -21,7 +22,6 @@ import org.gotson.komga.domain.model.Author
 import org.gotson.komga.domain.model.BookSearch
 import org.gotson.komga.domain.model.Dimension
 import org.gotson.komga.domain.model.DomainEvent
-import org.gotson.komga.domain.model.KomgaUser
 import org.gotson.komga.domain.model.MarkSelectedPreference
 import org.gotson.komga.domain.model.Media
 import org.gotson.komga.domain.model.MediaType.ZIP
@@ -42,7 +42,6 @@ import org.gotson.komga.domain.persistence.ThumbnailSeriesRepository
 import org.gotson.komga.domain.service.BookLifecycle
 import org.gotson.komga.domain.service.SeriesLifecycle
 import org.gotson.komga.infrastructure.image.ImageAnalyzer
-import org.gotson.komga.infrastructure.jooq.UnpagedSorted
 import org.gotson.komga.infrastructure.mediacontainer.ContentDetector
 import org.gotson.komga.infrastructure.openapi.AuthorsAsQueryParam
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration
@@ -467,7 +466,7 @@ class SeriesController(
     @PathVariable(name = "seriesId") id: String,
   ): SeriesDto =
     seriesDtoRepository.findByIdOrNull(id, principal.user.id)?.let {
-      contentRestrictionChecker.checkContentRestriction(principal.user, it)
+      contentRestrictionChecker.checkContentRestrictionSeries(principal.user, it)
       it.restrictUrl(!principal.user.isAdmin)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
 
@@ -478,7 +477,7 @@ class SeriesController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable(name = "seriesId") seriesId: String,
   ): ByteArray {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     return seriesLifecycle.getThumbnailBytes(seriesId, principal.user.id)
       ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
@@ -492,7 +491,8 @@ class SeriesController(
     @PathVariable(name = "seriesId") seriesId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ): ByteArray {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeriesThumbnail(principal.user, thumbnailId)
 
     return seriesLifecycle.getThumbnailBytesByThumbnailId(thumbnailId)
       ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
@@ -504,7 +504,7 @@ class SeriesController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable(name = "seriesId") seriesId: String,
   ): Collection<ThumbnailSeriesDto> {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     return thumbnailsSeriesRepository
       .findAllBySeriesId(seriesId)
@@ -548,10 +548,12 @@ class SeriesController(
     @PathVariable(name = "seriesId") seriesId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ) {
-    seriesRepository.findByIdOrNull(seriesId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
-    thumbnailsSeriesRepository.findByIdOrNull(thumbnailId)?.let {
-      thumbnailsSeriesRepository.markSelected(it)
-      eventPublisher.publishEvent(DomainEvent.ThumbnailSeriesAdded(it.copy(selected = true)))
+    seriesRepository.findByIdOrNull(seriesId)?.let { series ->
+      thumbnailsSeriesRepository.findByIdOrNull(thumbnailId)?.let { poster ->
+        if (poster.seriesId != series.id) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
+        thumbnailsSeriesRepository.markSelected(poster)
+        eventPublisher.publishEvent(DomainEvent.ThumbnailSeriesAdded(poster.copy(selected = true)))
+      } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
 
@@ -563,13 +565,15 @@ class SeriesController(
     @PathVariable(name = "seriesId") seriesId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ) {
-    seriesRepository.findByIdOrNull(seriesId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
-    thumbnailsSeriesRepository.findByIdOrNull(thumbnailId)?.let {
-      try {
-        seriesLifecycle.deleteThumbnailForSeries(it)
-      } catch (e: IllegalArgumentException) {
-        throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message)
-      }
+    seriesRepository.findByIdOrNull(seriesId)?.let { series ->
+      thumbnailsSeriesRepository.findByIdOrNull(thumbnailId)?.let { poster ->
+        if (poster.seriesId != series.id) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
+        try {
+          seriesLifecycle.deleteThumbnailForSeries(poster)
+        } catch (e: IllegalArgumentException) {
+          throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message)
+        }
+      } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
 
@@ -589,7 +593,7 @@ class SeriesController(
     @Parameter(hidden = true) @Authors authors: List<Author>? = null,
     @Parameter(hidden = true) page: Pageable,
   ): Page<BookDto> {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     val sort =
       if (page.sort.isSorted)
@@ -634,10 +638,10 @@ class SeriesController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable(name = "seriesId") seriesId: String,
   ): List<CollectionDto> {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     return collectionRepository
-      .findAllContainingSeriesId(seriesId, principal.user.getAuthorizedLibraryIds(null), principal.user.restrictions)
+      .findAllContainingSeriesId(seriesId, SearchContext(principal.user))
       .map { it.toDto() }
   }
 
@@ -746,7 +750,7 @@ class SeriesController(
     @PathVariable seriesId: String,
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ) {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     seriesLifecycle.markReadProgressCompleted(seriesId, principal.user)
   }
@@ -758,7 +762,7 @@ class SeriesController(
     @PathVariable seriesId: String,
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ) {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     seriesLifecycle.deleteReadProgress(seriesId, principal.user)
   }
@@ -769,7 +773,7 @@ class SeriesController(
     @PathVariable seriesId: String,
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ): TachiyomiReadProgressV2Dto {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     return readProgressDtoRepository.findProgressV2BySeries(seriesId, principal.user.id)
   }
@@ -782,7 +786,7 @@ class SeriesController(
     @RequestBody readProgress: TachiyomiReadProgressUpdateV2Dto,
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ) {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     bookDtoRepository
       .findAll(
@@ -804,7 +808,7 @@ class SeriesController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable seriesId: String,
   ): ResponseEntity<StreamingResponseBody> {
-    principal.user.checkContentRestriction(seriesId)
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
 
     val books = bookRepository.findAllBySeriesId(seriesId)
 
@@ -856,23 +860,5 @@ class SeriesController(
       seriesId = seriesId,
       priority = HIGHEST_PRIORITY,
     )
-  }
-
-  /**
-   * Convenience function to check for content restriction.
-   * This will retrieve data from repositories if needed.
-   *
-   * @throws[ResponseStatusException] if the user cannot access the content
-   */
-  private fun KomgaUser.checkContentRestriction(seriesId: String) {
-    if (!canAccessAllLibraries()) {
-      seriesRepository.getLibraryId(seriesId)?.let {
-        if (!canAccessLibrary(it)) throw ResponseStatusException(HttpStatus.FORBIDDEN)
-      } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
-    }
-    if (restrictions.isRestricted)
-      seriesMetadataRepository.findById(seriesId).let {
-        if (!isContentAllowed(it.ageRating, it.sharingLabels)) throw ResponseStatusException(HttpStatus.FORBIDDEN)
-      }
   }
 }

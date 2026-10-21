@@ -93,7 +93,7 @@ class CommonBookController(
     webPubGenerator: WebPubGenerator,
   ) = bookDtoRepository.findByIdOrNull(bookId, principal.user.id)?.let { bookDto ->
     if (bookDto.media.mediaProfile != MediaProfile.EPUB.name) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Book media type '${bookDto.media.mediaType}' not compatible with requested profile")
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookDto)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookDto)
     webPubGenerator.toManifestEpub(
       bookDto,
       mediaRepository.findById(bookId),
@@ -107,7 +107,7 @@ class CommonBookController(
     webPubGenerator: WebPubGenerator,
   ) = bookDtoRepository.findByIdOrNull(bookId, principal.user.id)?.let { bookDto ->
     if (bookDto.media.mediaProfile != MediaProfile.PDF.name) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Book media type '${bookDto.media.mediaType}' not compatible with requested profile")
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookDto)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookDto)
     webPubGenerator.toManifestPdf(
       bookDto,
       mediaRepository.findById(bookDto.id),
@@ -120,7 +120,7 @@ class CommonBookController(
     bookId: String,
     webPubGenerator: WebPubGenerator,
   ) = bookDtoRepository.findByIdOrNull(bookId, principal.user.id)?.let { bookDto ->
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookDto)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookDto)
     webPubGenerator.toManifestDivina(
       bookDto,
       mediaRepository.findById(bookDto.id),
@@ -135,62 +135,63 @@ class CommonBookController(
     request: ServletWebRequest,
     principal: KomgaPrincipal,
     acceptHeaders: MutableList<MediaType>?,
-  ) = bookRepository.findByIdOrNull((bookId))?.let { book ->
-    val media = mediaRepository.findById(bookId)
-    if (request.checkNotModified(getBookLastModified(media))) {
-      return@let ResponseEntity
-        .status(HttpStatus.NOT_MODIFIED)
-        .setNotModified(media)
-        .body(ByteArray(0))
-    }
+  ): ResponseEntity<ByteArray> =
+    bookRepository.findByIdOrNull((bookId))?.let { book ->
+      val media = mediaRepository.findById(bookId)
+      if (request.checkNotModified(getBookLastModified(media))) {
+        return@let ResponseEntity
+          .status(HttpStatus.NOT_MODIFIED)
+          .setNotModified(media)
+          .body(ByteArray(0))
+      }
 
-    contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
-    if (media.profile == MediaProfile.PDF && acceptHeaders != null && acceptHeaders.any { it.isCompatibleWith(MediaType.APPLICATION_PDF) }) {
-      // keep only pdf and image
-      acceptHeaders.removeIf { !it.isCompatibleWith(MediaType.APPLICATION_PDF) && !it.isCompatibleWith(MediaType("image")) }
-      MimeTypeUtils.sortBySpecificity(acceptHeaders)
-      if (acceptHeaders.first().isCompatibleWith(MediaType.APPLICATION_PDF))
-        return getBookPageRawInternal(book, media, pageNumber)
-    }
+      if (media.profile == MediaProfile.PDF && acceptHeaders != null && acceptHeaders.any { it.isCompatibleWith(MediaType.APPLICATION_PDF) }) {
+        // keep only pdf and image
+        acceptHeaders.removeIf { !it.isCompatibleWith(MediaType.APPLICATION_PDF) && !it.isCompatibleWith(MediaType("image")) }
+        MimeTypeUtils.sortBySpecificity(acceptHeaders)
+        if (acceptHeaders.first().isCompatibleWith(MediaType.APPLICATION_PDF))
+          return getBookPageRawInternal(book, media, pageNumber)
+      }
 
-    try {
-      val convertFormat =
-        when (convertTo?.lowercase()) {
-          "jpeg" -> ImageType.JPEG
-          "png" -> ImageType.PNG
-          "", null -> null
-          else -> throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid conversion format: $convertTo")
-        }
+      try {
+        val convertFormat =
+          when (convertTo?.lowercase()) {
+            "jpeg" -> ImageType.JPEG
+            "png" -> ImageType.PNG
+            "", null -> null
+            else -> throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid conversion format: $convertTo")
+          }
 
-      val pageContent = bookLifecycle.getBookPage(book, pageNumber, convertFormat)
+        val pageContent = bookLifecycle.getBookPage(book, pageNumber, convertFormat)
 
-      ResponseEntity
-        .ok()
-        .headers(
-          HttpHeaders().apply {
-            val extension = contentDetector.mediaTypeToExtension(pageContent.mediaType) ?: "jpeg"
-            val imageFileName = "${book.name}-$pageNumber$extension"
-            contentDisposition =
-              ContentDisposition
-                .builder("inline")
-                .filename(imageFileName, StandardCharsets.UTF_8)
-                .build()
-          },
-        ).contentType(getMediaTypeOrDefault(pageContent.mediaType))
-        .setNotModified(media)
-        .body(pageContent.bytes)
-    } catch (_: IndexOutOfBoundsException) {
-      throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Page number does not exist")
-    } catch (ex: ImageConversionException) {
-      throw ResponseStatusException(HttpStatus.NOT_FOUND, ex.message)
-    } catch (_: MediaNotReadyException) {
-      throw ResponseStatusException(HttpStatus.NOT_FOUND, "Book analysis failed")
-    } catch (ex: NoSuchFileException) {
-      logger.warn(ex) { "File not found: $book" }
-      throw ResponseStatusException(HttpStatus.NOT_FOUND, "File not found, it may have moved")
-    }
-  } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+        ResponseEntity
+          .ok()
+          .headers(
+            HttpHeaders().apply {
+              val extension = contentDetector.mediaTypeToExtension(pageContent.mediaType) ?: "jpeg"
+              val imageFileName = "${book.name}-$pageNumber$extension"
+              contentDisposition =
+                ContentDisposition
+                  .builder("inline")
+                  .filename(imageFileName, StandardCharsets.UTF_8)
+                  .build()
+            },
+          ).contentType(getMediaTypeOrDefault(pageContent.mediaType))
+          .setNotModified(media)
+          .body(pageContent.bytes)
+      } catch (_: IndexOutOfBoundsException) {
+        throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Page number does not exist")
+      } catch (ex: ImageConversionException) {
+        throw ResponseStatusException(HttpStatus.NOT_FOUND, ex.message)
+      } catch (_: MediaNotReadyException) {
+        throw ResponseStatusException(HttpStatus.NOT_FOUND, "Book analysis failed")
+      } catch (ex: NoSuchFileException) {
+        logger.warn(ex) { "File not found: $book" }
+        throw ResponseStatusException(HttpStatus.NOT_FOUND, "File not found, it may have moved")
+      }
+    } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
 
   @Operation(summary = "Get raw book page", description = "Returns the book page in raw format, without content negotiation.", tags = [OpenApiConfiguration.TagNames.BOOK_PAGES])
   @GetMapping(
@@ -216,7 +217,7 @@ class CommonBookController(
           .body(ByteArray(0))
       }
 
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       getBookPageRawInternal(book, media, pageNumber)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
@@ -287,7 +288,7 @@ class CommonBookController(
     }
 
     if (media.profile != MediaProfile.EPUB) throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Book media type '${media.mediaType}' not compatible with requested profile")
-    if (!isFont) contentRestrictionChecker.checkContentRestriction(principal!!.user, book)
+    if (!isFont) contentRestrictionChecker.checkContentRestrictionBook(principal!!.user, book)
 
     val res = media.files.firstOrNull { it.fileName == resourceName } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     val bytes =
@@ -335,7 +336,7 @@ class CommonBookController(
     bookId: String,
   ): ResponseEntity<StreamingResponseBody> =
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
       try {
         val media = mediaRepository.findById(book.id)
         with(FileSystemResource(book.path)) {
@@ -380,7 +381,7 @@ class CommonBookController(
     @PathVariable bookId: String,
   ): ResponseEntity<R2Progression> =
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       readProgressRepository.findByBookIdAndUserIdOrNull(bookId, principal.user.id)?.let {
         ResponseEntity.ok(it.toR2Progression())
@@ -401,7 +402,7 @@ class CommonBookController(
     @RequestBody progression: R2Progression,
   ) {
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       try {
         bookLifecycle.markProgression(book, principal.user, progression)

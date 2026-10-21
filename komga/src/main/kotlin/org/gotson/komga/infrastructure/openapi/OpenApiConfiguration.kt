@@ -10,6 +10,7 @@ import io.swagger.v3.oas.models.info.Info
 import io.swagger.v3.oas.models.info.License
 import io.swagger.v3.oas.models.media.Content
 import io.swagger.v3.oas.models.media.MediaType
+import io.swagger.v3.oas.models.media.Schema
 import io.swagger.v3.oas.models.responses.ApiResponse
 import io.swagger.v3.oas.models.responses.ApiResponses
 import io.swagger.v3.oas.models.security.SecurityRequirement
@@ -108,6 +109,8 @@ class OpenApiConfiguration(
 
             If you need to set the session cookie later on, you can call `/api/v1/login/set-cookie` with `X-Auth-Token`. The response will contain the `Set-Cookie` header.
 
+            Sessions are not created when authenticating with an API Key.
+
             ## Remember Me
 
             During authentication, if a request parameter `remember-me` is passed and set to `true`, the server will also return a `komga-remember-me` cookie. This cookie will be used to login automatically even if the session has expired.
@@ -194,10 +197,16 @@ class OpenApiConfiguration(
                         .addMediaType(
                           "application/json",
                           MediaType()
-                            .addExamples(
+                            .schema(
+                              Schema<Map<String, Any>>().apply {
+                                type = "object"
+                                additionalProperties = true
+                              },
+                            ).addExamples(
                               "Example",
                               Example()
                                 .value(
+                                  //language=JSON
                                   """
 {
   "git": {

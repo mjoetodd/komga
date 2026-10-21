@@ -7,7 +7,6 @@ import org.gotson.komga.domain.model.ReadStatus
 import org.gotson.komga.domain.model.SearchCondition
 import org.gotson.komga.domain.model.SearchContext
 import org.gotson.komga.domain.model.SearchOperator
-import org.gotson.komga.infrastructure.datasource.SqliteUdfDataSource
 import org.gotson.komga.infrastructure.jooq.RequiredJoin.ReadProgress
 import org.gotson.komga.jooq.main.Tables
 import org.jooq.Condition
@@ -20,7 +19,7 @@ private val logger = KotlinLogging.logger {}
  */
 class BookSearchHelper(
   val context: SearchContext,
-) : ContentRestrictionsSearchHelper() {
+) {
   fun toCondition(searchCondition: SearchCondition.Book?): Pair<Condition, Set<RequiredJoin>> {
     val base = toCondition()
     val search = toConditionInternal(searchCondition)
@@ -28,7 +27,7 @@ class BookSearchHelper(
   }
 
   fun toCondition(): Pair<Condition, Set<RequiredJoin>> {
-    val restrictions = toConditionInternal(context.restrictions)
+    val restrictions = ContentRestrictionsSearchHelper(context.restrictions).toCondition()
     val authorizedLibraries = toConditionInternal(context.libraryIds)
     return restrictions.first.and(authorizedLibraries.first) to (restrictions.second + authorizedLibraries.second)
   }
@@ -149,8 +148,8 @@ class BookSearchHelper(
               .from(Tables.BOOK_METADATA_TAG)
               .where(
                 Tables.BOOK_METADATA_TAG.TAG
-                  .collate(SqliteUdfDataSource.COLLATION_UNICODE_3)
-                  .equalIgnoreCase(tag),
+                  .unicode1()
+                  .equal(tag),
               )
           }
           val innerAny = {
@@ -179,31 +178,59 @@ class BookSearchHelper(
                 if (name != null)
                   and(
                     Tables.BOOK_METADATA_AUTHOR.NAME
-                      .collate(SqliteUdfDataSource.COLLATION_UNICODE_3)
-                      .equalIgnoreCase(name),
+                      .unicode1()
+                      .equal(name),
                   )
               }.apply {
                 if (role != null)
                   and(
                     Tables.BOOK_METADATA_AUTHOR.ROLE
-                      .collate(SqliteUdfDataSource.COLLATION_UNICODE_3)
-                      .equalIgnoreCase(role),
+                      .unicode1()
+                      .equal(role),
                   )
               }
           }
           when (searchCondition.operator) {
             is SearchOperator.Is -> {
-              if (searchCondition.operator.value.name == null && searchCondition.operator.value.role == null)
-                DSL.noCondition()
-              else
-                field.`in`(inner(searchCondition.operator.value.name, searchCondition.operator.value.role))
+              field.`in`(inner(searchCondition.operator.value.name, searchCondition.operator.value.role))
             }
 
             is SearchOperator.IsNot -> {
-              if (searchCondition.operator.value.name == null && searchCondition.operator.value.role == null)
-                DSL.noCondition()
-              else
-                field.notIn(inner(searchCondition.operator.value.name, searchCondition.operator.value.role))
+              field.notIn(inner(searchCondition.operator.value.name, searchCondition.operator.value.role))
+            }
+          } to emptySet()
+        }
+
+      is SearchCondition.NotableEntity ->
+        Tables.BOOK.ID.let { field ->
+          val inner = { name: String?, kind: String? ->
+            DSL
+              .select(Tables.BOOK_METADATA_NOTABLE_ENTITIES.BOOK_ID)
+              .from(Tables.BOOK_METADATA_NOTABLE_ENTITIES)
+              .where(DSL.noCondition())
+              .apply {
+                if (name != null)
+                  and(
+                    Tables.BOOK_METADATA_NOTABLE_ENTITIES.NAME
+                      .unicode1()
+                      .equal(name),
+                  )
+              }.apply {
+                if (kind != null)
+                  and(
+                    Tables.BOOK_METADATA_NOTABLE_ENTITIES.KIND
+                      .unicode1()
+                      .equal(kind),
+                  )
+              }
+          }
+          when (searchCondition.operator) {
+            is SearchOperator.Is -> {
+              field.`in`(inner(searchCondition.operator.value.name, searchCondition.operator.value.kind))
+            }
+
+            is SearchOperator.IsNot -> {
+              field.notIn(inner(searchCondition.operator.value.name, searchCondition.operator.value.kind))
             }
           } to emptySet()
         }

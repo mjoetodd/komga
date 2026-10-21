@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.validation.Valid
+import org.gotson.komga.application.query.UnpagedSorted
 import org.gotson.komga.application.tasks.HIGHEST_PRIORITY
 import org.gotson.komga.application.tasks.HIGH_PRIORITY
 import org.gotson.komga.application.tasks.LOWEST_PRIORITY
@@ -34,7 +35,6 @@ import org.gotson.komga.domain.persistence.ThumbnailBookRepository
 import org.gotson.komga.domain.service.BookAnalyzer
 import org.gotson.komga.domain.service.BookLifecycle
 import org.gotson.komga.infrastructure.image.ImageAnalyzer
-import org.gotson.komga.infrastructure.jooq.UnpagedSorted
 import org.gotson.komga.infrastructure.mediacontainer.ContentDetector
 import org.gotson.komga.infrastructure.openapi.OpenApiConfiguration
 import org.gotson.komga.infrastructure.openapi.PageableAsQueryParam
@@ -278,7 +278,7 @@ class BookController(
     @PathVariable bookId: String,
   ): BookDto =
     bookDtoRepository.findByIdOrNull(bookId, principal.user.id)?.let {
-      contentRestrictionChecker.checkContentRestriction(principal.user, it)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, it)
 
       it.restrictUrl(!principal.user.isAdmin)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
@@ -289,7 +289,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable bookId: String,
   ): BookDto {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
 
     return bookDtoRepository
       .findPreviousInSeriesOrNull(bookId, principal.user.id)
@@ -303,7 +303,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable bookId: String,
   ): BookDto {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
 
     return bookDtoRepository
       .findNextInSeriesOrNull(bookId, principal.user.id)
@@ -317,10 +317,10 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable(name = "bookId") bookId: String,
   ): List<ReadListDto> {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
 
     return readListRepository
-      .findAllContainingBookId(bookId, principal.user.getAuthorizedLibraryIds(null), principal.user.restrictions)
+      .findAllContainingBookId(bookId, SearchContext(principal.user))
       .map { it.toDto() }
   }
 
@@ -334,7 +334,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable bookId: String,
   ): ByteArray {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
 
     return bookLifecycle.getThumbnailBytes(bookId)?.bytes ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
@@ -347,7 +347,8 @@ class BookController(
     @PathVariable(name = "bookId") bookId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ): ByteArray {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBookThumbnail(principal.user, thumbnailId)
 
     return bookLifecycle.getThumbnailBytesByThumbnailId(thumbnailId)?.bytes
       ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
@@ -359,7 +360,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
     @PathVariable(name = "bookId") bookId: String,
   ): Collection<ThumbnailBookDto> {
-    contentRestrictionChecker.checkContentRestriction(principal.user, bookId)
+    contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
 
     return thumbnailBookRepository
       .findAllByBookId(bookId)
@@ -405,9 +406,12 @@ class BookController(
     @PathVariable(name = "bookId") bookId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ) {
-    thumbnailBookRepository.findByIdOrNull(thumbnailId)?.let {
-      thumbnailBookRepository.markSelected(it)
-      eventPublisher.publishEvent(DomainEvent.ThumbnailBookAdded(it.copy(selected = true)))
+    bookRepository.findByIdOrNull(bookId)?.let { book ->
+      thumbnailBookRepository.findByIdOrNull(thumbnailId)?.let { poster ->
+        if (poster.bookId != book.id) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
+        thumbnailBookRepository.markSelected(poster)
+        eventPublisher.publishEvent(DomainEvent.ThumbnailBookAdded(poster.copy(selected = true)))
+      } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
 
@@ -420,12 +424,15 @@ class BookController(
     @PathVariable(name = "bookId") bookId: String,
     @PathVariable(name = "thumbnailId") thumbnailId: String,
   ) {
-    thumbnailBookRepository.findByIdOrNull(thumbnailId)?.let {
-      try {
-        bookLifecycle.deleteThumbnailForBook(it)
-      } catch (e: IllegalArgumentException) {
-        throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message)
-      }
+    bookRepository.findByIdOrNull(bookId)?.let { book ->
+      thumbnailBookRepository.findByIdOrNull(thumbnailId)?.let { poster ->
+        if (poster.bookId != book.id) throw ResponseStatusException(HttpStatus.BAD_REQUEST)
+        try {
+          bookLifecycle.deleteThumbnailForBook(poster)
+        } catch (e: IllegalArgumentException) {
+          throw ResponseStatusException(HttpStatus.BAD_REQUEST, e.message)
+        }
+      } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
 
@@ -436,7 +443,7 @@ class BookController(
     @PathVariable bookId: String,
   ): List<PageDto> =
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       val media = mediaRepository.findById(book.id)
       when (media.status) {
@@ -513,7 +520,7 @@ class BookController(
           .body(ByteArray(0))
       }
 
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       try {
         val pageContent = bookLifecycle.getBookPage(book, pageNumber, resizeTo = 300)
@@ -571,7 +578,7 @@ class BookController(
           .body(null)
       }
 
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       val extension =
         mediaRepository.findExtensionByIdOrNull(book.id) as? MediaExtensionEpub
@@ -695,7 +702,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ) {
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       try {
         if (readProgress.completed != null && readProgress.completed)
@@ -716,7 +723,7 @@ class BookController(
     @AuthenticationPrincipal principal: KomgaPrincipal,
   ) {
     bookRepository.findByIdOrNull(bookId)?.let { book ->
-      contentRestrictionChecker.checkContentRestriction(principal.user, book)
+      contentRestrictionChecker.checkContentRestrictionBook(principal.user, book)
 
       bookLifecycle.deleteReadProgress(book, principal.user)
     } ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
