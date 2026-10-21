@@ -26,20 +26,31 @@ jobs:
           java-package: 'jdk'
           distribution: 'temurin'
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
+      - name: WebUI - Setup
+        uses: ./.github/actions/setup-web
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
-          cache-dependency-path: komga-webui/package-lock.json
+          working-directory: komga-webui
+
+      - name: WebUI - build
+        working-directory: komga-webui
+        run: npm run build
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: NextUI - Setup
+        uses: ./.github/actions/setup-web
+        with:
+          working-directory: next-ui
+
+      - name: NextUI - build
+        working-directory: next-ui
+        run: npm run build:with-i18n
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Build webui + jar
-        run: ./gradlew :komga:prepareThymeLeaf :komga:bootJar
-        env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
+      - name: Build jar
+        run: ./gradlew :komga:webuiCopyIndex :komga:nextuiCopyIndex :komga:bootJar
 
       - name: Compute safe image tag
         id: tag
