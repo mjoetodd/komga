@@ -210,7 +210,7 @@
             $formatMessage({
               description: 'Form add/edit library: Options - section header for book covers',
               defaultMessage: 'Book covers',
-              id: 'library.options.bookCovers',
+              id: '/s+xEc',
             })
           }}
         </div>
