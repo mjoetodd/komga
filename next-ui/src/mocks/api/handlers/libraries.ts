@@ -38,6 +38,7 @@ export const mockLibraries = [
     convertToCbz: false,
     emptyTrashAfterScan: true,
     seriesCover: 'FIRST',
+    bookPosterSource: 'BOOK',
     hashFiles: true,
     hashPages: false,
     hashKoreader: false,

@@ -63,6 +63,7 @@ export const Edit: Story = {
       scanOnStartup: false,
       scanPdf: true,
       seriesCover: 'FIRST',
+      bookPosterSource: 'BOOK',
     },
   },
 }

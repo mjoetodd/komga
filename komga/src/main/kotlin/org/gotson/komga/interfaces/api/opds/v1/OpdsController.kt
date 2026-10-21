@@ -704,9 +704,9 @@ class OpdsController(
     @PathVariable bookId: String,
   ): ByteArray {
     contentRestrictionChecker.checkContentRestrictionBook(principal.user, bookId)
-    val thumbnail = bookLifecycle.getThumbnail(bookId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+    val thumbnail = bookLifecycle.getThumbnail(bookId)
 
-    return bookLifecycle.getThumbnailBytes(bookId, if (thumbnail.type == ThumbnailBook.Type.GENERATED) null else komgaSettingsProvider.thumbnailSize.maxEdge)?.bytes
+    return bookLifecycle.getThumbnailBytes(bookId, if (thumbnail?.type == ThumbnailBook.Type.GENERATED) null else komgaSettingsProvider.thumbnailSize.maxEdge)?.bytes
       ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
   }
 

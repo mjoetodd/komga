@@ -477,6 +477,7 @@
       "field_import_local_artwork": "Local artwork",
       "field_import_mylar_series": "Series metadata",
       "field_name": "Name",
+      "field_book_poster_source": "Book covers",
       "field_oneshotsdirectory": "One-Shots directory",
       "field_repair_extensions": "Automatically repair incorrect file extensions",
       "field_root_folder": "Root folder",
@@ -497,6 +498,7 @@
       "label_scan_directory_exclusions": "Directory exclusions",
       "label_scan_types": "Scan for these file types",
       "label_scanner": "Scanner",
+      "label_book_poster_source": "Book covers",
       "label_series_cover": "Series cover",
       "tab_general": "General",
       "tab_metadata": "Metadata",
@@ -744,6 +746,10 @@
       "EVERY_6H": "Every 6 hours",
       "HOURLY": "Hourly",
       "WEEKLY": "Weekly"
+    },
+    "book_poster_source": {
+      "BOOK": "Each book's own cover",
+      "SERIES": "Series cover"
     },
     "series_cover": {
       "FIRST": "First",
