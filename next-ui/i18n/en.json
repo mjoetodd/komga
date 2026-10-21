@@ -2291,6 +2291,18 @@
     "defaultMessage": "Weekly",
     "description": "Scan interval: WEEKLY"
   },
+  "library.options.bookCovers": {
+    "defaultMessage": "Book covers",
+    "description": "Form add/edit library: Options - section header for book covers"
+  },
+  "enum.BookPosterSource.BOOK": {
+    "defaultMessage": "Each book's own cover",
+    "description": "Book poster source: BOOK"
+  },
+  "enum.BookPosterSource.SERIES": {
+    "defaultMessage": "Series cover",
+    "description": "Book poster source: SERIES"
+  },
   "enum.SeriesCover.FIRST": {
     "defaultMessage": "First",
     "description": "Series cover: FIRST"

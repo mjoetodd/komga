@@ -40,6 +40,7 @@ class LibraryUpdateDto {
   val convertToCbz: Boolean? = null
   val emptyTrashAfterScan: Boolean? = null
   val seriesCover: SeriesCoverDto? = null
+  val bookPosterSource: BookPosterSourceDto? = null
   val hashFiles: Boolean? = null
   val hashPages: Boolean? = null
   val hashKoreader: Boolean? = null

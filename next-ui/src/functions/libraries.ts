@@ -31,6 +31,7 @@ export function getLibraryDefaults(): LibraryCreationDto {
     scanOnStartup: false,
     scanPdf: true,
     seriesCover: 'FIRST',
+    bookPosterSource: 'BOOK',
   }
 }
 
