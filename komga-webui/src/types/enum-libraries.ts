@@ -5,6 +5,11 @@ export enum SeriesCoverDto {
   LAST = 'LAST',
 }
 
+export enum BookPosterSourceDto {
+  BOOK = 'BOOK',
+  SERIES = 'SERIES',
+}
+
 export enum ScanIntervalDto {
   DISABLED = 'DISABLED',
   HOURLY = 'HOURLY',
