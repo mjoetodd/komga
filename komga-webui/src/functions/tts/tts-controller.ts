@@ -34,7 +34,9 @@ export interface TTSControllerOptions {
   // Called when the sentence about to be read is off-screen (e.g. a later page in a
   // paginated/columned layout) so the reader can turn the page to keep up with playback.
   onAdvancePage?: () => void
-  onProgress?: (progressPercent: number) => void
+  // progressPercent is 0..1 across the current chapter/document; currentIndex/totalCount
+  // give the segment position ("Sentence 12 of 348") for richer playback UI.
+  onProgress?: (progressPercent: number, currentIndex: number, totalCount: number) => void
 }
 
 export class TTSController {
@@ -63,7 +65,7 @@ export class TTSController {
   private onStateChange?: (state: TTSState) => void
   private onChapterEnd?: () => void
   private onAdvancePage?: () => void
-  private onProgress?: (progressPercent: number) => void
+  private onProgress?: (progressPercent: number, currentIndex: number, totalCount: number) => void
 
   constructor(options: TTSControllerOptions = {}) {
     this.updateOptions(options)
@@ -381,7 +383,7 @@ export class TTSController {
     // Notify Progress
     if (this.onProgress) {
       const progress = this.sentences.length > 0 ? (this.currentSentenceIndex / this.sentences.length) : 0
-      this.onProgress(progress)
+      this.onProgress(progress, this.currentSentenceIndex, this.sentences.length)
     }
 
     const sentenceRange = TextExtractor.createRangeFromPositions(this.doc, sentence.domPositions)

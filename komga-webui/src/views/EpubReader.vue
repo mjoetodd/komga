@@ -306,6 +306,9 @@
       :state="ttsState"
       :sentence-text="ttsSentenceText"
       :speed="settings.ttsRate"
+      :progress="ttsProgress"
+      :current-segment="ttsSegmentIndex"
+      :total-segments="ttsSegmentTotal"
       :theme-variant="activeThemeVariant"
       @toggle-play="toggleTtsPlay"
       @stop="stopTTS"
@@ -483,6 +486,8 @@ export default Vue.extend({
       ttsState: 'idle',
       ttsSentenceText: '',
       ttsProgress: 0,
+      ttsSegmentIndex: 0,
+      ttsSegmentTotal: 0,
     }
   },
   created() {
@@ -1074,8 +1079,10 @@ export default Vue.extend({
         onAdvancePage: () => {
           this.d2Reader.nextPage()
         },
-        onProgress: (progress) => {
+        onProgress: (progress, currentIndex, totalCount) => {
           this.ttsProgress = progress
+          this.ttsSegmentIndex = currentIndex
+          this.ttsSegmentTotal = totalCount
         },
       })
       

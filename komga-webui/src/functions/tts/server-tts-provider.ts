@@ -137,33 +137,67 @@ export class ServerTTSProvider implements TTSProvider {
     }
   }
 
+  // One synthesis request against Komga's backend proxy. `rate` is deliberately sent as
+  // 1.0: the server renders at its natural rate and the *player* owns playback speed via
+  // HTMLAudioElement.playbackRate (applied in playPrepared). Sending the user's rate here
+  // as `speed` as well double-applied it on providers that honor the field - the audio was
+  // rendered faster AND played faster - while providers that ignore `speed` (e.g. Phonon)
+  // behaved inconsistently by comparison. One owner for speed keeps every provider
+  // behaving the same, and keeps estimated word boundaries (media-time, see
+  // estimateBoundaries) aligned with the audio that actually comes back.
+  private async fetchSpeech(text: string, voiceToUse: string, options: TTSSpeakOptions): Promise<Response> {
+    // Self-hosted single-slot servers (e.g. Phonon, max 1 concurrent request) answer 429
+    // while busy - which a prefetch racing the in-flight sentence, or a burst of skips,
+    // can legitimately cause. That's transient, not a failure: back off briefly and retry
+    // instead of letting the controller count it as a failed sentence and skip content.
+    const maxAttempts = 3
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      let response: Response
+      try {
+        response = await fetch(SPEAK_URL(), {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            input: text,
+            voice: voiceToUse,
+            rate: 1.0,
+            language: options.language,
+          }),
+        })
+      } catch (e) {
+        if (attempt >= maxAttempts) throw e
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+        continue
+      }
+
+      if (response.ok) return response
+
+      const detail = await response.text().catch(() => '')
+      const transient = response.status === 429 || response.status === 503
+      if (!transient || attempt >= maxAttempts) {
+        throw new Error(`TTS request failed (${response.status})${detail ? `: ${detail}` : ''}`)
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+    }
+    // Unreachable (the final attempt returns or throws), but keeps the control flow
+    // explicit for the compiler instead of relying on infinite-loop analysis.
+    throw new Error('TTS request failed')
+  }
+
   // Fetches/synthesizes audio without playing it, so the controller can prepare upcoming
   // sentences while the current one is still playing and mask the request latency.
   async preload(text: string, options: TTSSpeakOptions): Promise<TTSPreparedUtterance> {
     const voiceToUse = options.voice?.id || this.defaultVoiceId || 'default'
 
-    const response = await fetch(SPEAK_URL(), {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        input: text,
-        voice: voiceToUse,
-        rate: options.rate,
-        language: options.language,
-      }),
-    })
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '')
-      throw new Error(`TTS request failed (${response.status})${detail ? `: ${detail}` : ''}`)
-    }
+    const response = await this.fetchSpeech(text, voiceToUse, options)
 
     const contentType = response.headers.get('content-type') || ''
     let audioBlob: Blob
     let boundaries: APIBoundary[]
+    let boundariesEstimated = true
 
     if (contentType.includes('application/json')) {
       const payload: ApiResponsePayload = await response.json()
@@ -174,10 +208,15 @@ export class ServerTTSProvider implements TTSProvider {
         bytes[i] = binaryString.charCodeAt(i)
       }
       audioBlob = new Blob([bytes], { type: 'audio/mpeg' })
-      boundaries = payload.boundaries ?? this.estimateBoundaries(text, options.rate)
+      if (payload.boundaries) {
+        boundaries = payload.boundaries
+        boundariesEstimated = false
+      } else {
+        boundaries = this.estimateBoundaries(text)
+      }
     } else {
       audioBlob = await response.blob()
-      boundaries = this.estimateBoundaries(text, options.rate)
+      boundaries = this.estimateBoundaries(text)
     }
 
     if (audioBlob.size === 0) {
@@ -190,7 +229,7 @@ export class ServerTTSProvider implements TTSProvider {
       options,
       play: () => {
         if (discarded) return Promise.reject(new Error('Cannot play a discarded prepared utterance'))
-        return this.playPrepared(text, options, audioBlob, boundaries)
+        return this.playPrepared(text, options, audioBlob, boundaries, boundariesEstimated)
       },
       discard: () => {
         discarded = true
@@ -223,6 +262,7 @@ export class ServerTTSProvider implements TTSProvider {
     options: TTSSpeakOptions,
     audioBlob: Blob,
     boundaries: APIBoundary[],
+    boundariesEstimated: boolean,
   ): Promise<TTSUtterance> {
     this.cancel()
     this._state = 'speaking'
@@ -264,6 +304,30 @@ export class ServerTTSProvider implements TTSProvider {
     const audio = new Audio(audioUrl)
     this.audio = audio
     audio.playbackRate = options.rate
+
+    // Calibrate estimated boundaries against the real audio duration as soon as it's
+    // known. estimateBoundaries assumes a flat 160 wpm, but a given voice/model's actual
+    // pace differs - uncorrected, the word highlight drifts further off the spoken word
+    // the longer the segment runs (very visible in paragraph chunk mode). The estimate's
+    // *shape* (relative word spacing) is decent, so rescale its timeline proportionally
+    // onto the true duration instead of replacing it. Providers that returned their own
+    // boundaries are already in real media time and are left untouched. The sync tick
+    // reads this.boundaries fresh on every pass, so mutating the array in place takes
+    // effect mid-playback. currentTime is media time (playbackRate doesn't change that),
+    // so no rate adjustment belongs here.
+    if (boundariesEstimated && boundaries.length > 0) {
+      const estimatedTotal = boundaries[boundaries.length - 1].end
+      audio.addEventListener('loadedmetadata', () => {
+        const actual = audio.duration
+        if (!isFinite(actual) || actual <= 0 || estimatedTotal <= 0) return
+        const scale = actual / estimatedTotal
+        if (Math.abs(scale - 1) < 0.02) return
+        for (const b of boundaries) {
+          b.start *= scale
+          b.end *= scale
+        }
+      }, { once: true })
+    }
 
     audio.onended = () => {
       URL.revokeObjectURL(audioUrl)
@@ -372,14 +436,17 @@ export class ServerTTSProvider implements TTSProvider {
   /**
    * Estimate word boundaries from character lengths when the provider doesn't return
    * its own timing. Standard English reading rate is roughly 150-180 words per minute.
+   * Times are in MEDIA time (the rendered audio's own timeline at its natural rate):
+   * user playback speed is applied separately via playbackRate, and
+   * HTMLAudioElement.currentTime is also media time, so the two stay in sync at any
+   * rate. playPrepared further rescales this timeline onto the audio's real duration.
    */
-  private estimateBoundaries(text: string, rate: number): APIBoundary[] {
+  private estimateBoundaries(text: string): APIBoundary[] {
     const words = text.split(/(\s+)/)
     const boundaries: APIBoundary[] = []
 
     const baseWpm = 160
-    const wpm = baseWpm * rate
-    const charsPerSecond = (wpm * 5) / 60
+    const charsPerSecond = (baseWpm * 5) / 60
 
     let charIndex = 0
     let currentTime = 0.0
