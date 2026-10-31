@@ -200,12 +200,37 @@
         />
       </v-col>
     </v-row>
+
+    <v-divider class="mb-4" />
+
+    <v-row>
+      <v-col>
+        <div class="text-label-large">
+          {{
+            $formatMessage({
+              description: 'Form add/edit library: Options - section header for book covers',
+              defaultMessage: 'Book covers',
+              id: '/s+xEc',
+            })
+          }}
+        </div>
+      </v-col>
+    </v-row>
+    <v-row>
+      <v-col>
+        <v-select
+          v-model="model.bookPosterSource"
+          :items="bookPosterSourceOptions"
+        />
+      </v-col>
+    </v-row>
   </v-container>
 </template>
 
 <script setup lang="ts">
 import { useIntl } from 'vue-intl'
 import { SeriesCoverValues, seriesCoverMessages } from '@/types/SeriesCover'
+import { BookPosterSourceValues, bookPosterSourceMessages } from '@/types/BookPosterSource'
 import { commonMessages } from '@/utils/i18n/common-messages'
 import type { LibraryCreationDto } from '@/generated/openapi'
 
@@ -218,6 +243,7 @@ type LibraryCreationOptions = Pick<
   | 'repairExtensions'
   | 'convertToCbz'
   | 'seriesCover'
+  | 'bookPosterSource'
 >
 
 const model = defineModel<LibraryCreationOptions>({ required: true })
@@ -226,6 +252,11 @@ const intl = useIntl()
 
 const seriesCoverOptions = SeriesCoverValues.map((x) => ({
   title: intl.formatMessage(seriesCoverMessages[x]),
+  value: x,
+}))
+
+const bookPosterSourceOptions = BookPosterSourceValues.map((x) => ({
+  title: intl.formatMessage(bookPosterSourceMessages[x]),
   value: x,
 }))
 </script>

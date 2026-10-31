@@ -291,6 +291,19 @@
                       />
                     </v-col>
                   </v-row>
+                  <v-row>
+                    <v-col>
+                      <span class="text-subtitle-1 text--primary">{{
+                          $t('dialog.edit_library.label_book_poster_source')
+                        }}</span>
+                      <v-select :items="bookPosterSource"
+                                v-model="form.bookPosterSource"
+                                :label="$t('dialog.edit_library.field_book_poster_source')"
+                                solo
+                                flat
+                      />
+                    </v-col>
+                  </v-row>
 
                 </v-container>
               </v-card>
@@ -446,7 +459,7 @@ import FileBrowserDialog from '@/components/dialogs/FileBrowserDialog.vue'
 import Vue from 'vue'
 import {required} from 'vuelidate/lib/validators'
 import {ERROR} from '@/types/events'
-import {ScanIntervalDto, SeriesCoverDto} from '@/types/enum-libraries'
+import {BookPosterSourceDto, ScanIntervalDto, SeriesCoverDto} from '@/types/enum-libraries'
 import {LibraryDto} from '@/types/komga-libraries'
 
 export default Vue.extend({
@@ -479,6 +492,7 @@ export default Vue.extend({
         convertToCbz: false,
         emptyTrashAfterScan: false,
         seriesCover: SeriesCoverDto.FIRST as SeriesCoverDto,
+        bookPosterSource: BookPosterSourceDto.BOOK as BookPosterSourceDto,
         hashFiles: true,
         hashPages: false,
         hashKoreader: false,
@@ -501,6 +515,12 @@ export default Vue.extend({
     seriesCover(): any[] {
       return Object.keys(SeriesCoverDto).map(x => ({
         text: this.$t(`enums.series_cover.${x}`),
+        value: x,
+      }))
+    },
+    bookPosterSource(): any[] {
+      return Object.keys(BookPosterSourceDto).map(x => ({
+        text: this.$t(`enums.book_poster_source.${x}`),
         value: x,
       }))
     },
@@ -639,6 +659,7 @@ export default Vue.extend({
       this.form.convertToCbz = library ? library.convertToCbz : false
       this.form.emptyTrashAfterScan = library ? library.emptyTrashAfterScan : false
       this.form.seriesCover = library ? library.seriesCover : SeriesCoverDto.FIRST
+      this.form.bookPosterSource = library ? library.bookPosterSource : BookPosterSourceDto.BOOK
       this.form.hashFiles = library ? library.hashFiles : true
       this.form.hashPages = library ? library.hashPages : false
       this.form.hashKoreader = library ? library.hashKoreader : false
@@ -674,6 +695,7 @@ export default Vue.extend({
           convertToCbz: this.form.convertToCbz,
           emptyTrashAfterScan: this.form.emptyTrashAfterScan,
           seriesCover: this.form.seriesCover,
+          bookPosterSource: this.form.bookPosterSource,
           hashFiles: this.form.hashFiles,
           hashPages: this.form.hashPages,
           hashKoreader: this.form.hashKoreader,

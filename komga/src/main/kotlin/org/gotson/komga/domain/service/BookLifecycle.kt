@@ -8,6 +8,7 @@ import org.gotson.komga.domain.model.DomainEvent
 import org.gotson.komga.domain.model.HistoricalEvent
 import org.gotson.komga.domain.model.ImageConversionException
 import org.gotson.komga.domain.model.KomgaUser
+import org.gotson.komga.domain.model.Library
 import org.gotson.komga.domain.model.MarkSelectedPreference
 import org.gotson.komga.domain.model.Media
 import org.gotson.komga.domain.model.MediaExtensionEpub
@@ -30,6 +31,7 @@ import org.gotson.komga.domain.persistence.MediaRepository
 import org.gotson.komga.domain.persistence.ReadListRepository
 import org.gotson.komga.domain.persistence.ReadProgressRepository
 import org.gotson.komga.domain.persistence.ThumbnailBookRepository
+import org.gotson.komga.domain.persistence.ThumbnailSeriesRepository
 import org.gotson.komga.infrastructure.configuration.KomgaSettingsProvider
 import org.gotson.komga.infrastructure.hash.Hasher
 import org.gotson.komga.infrastructure.image.ImageConverter
@@ -62,6 +64,7 @@ class BookLifecycle(
   private val bookProjectionRepository: BookProjectionRepository,
   private val readProgressRepository: ReadProgressRepository,
   private val thumbnailBookRepository: ThumbnailBookRepository,
+  private val thumbnailSeriesRepository: ThumbnailSeriesRepository,
   private val readListRepository: ReadListRepository,
   private val libraryRepository: LibraryRepository,
   private val bookAnalyzer: BookAnalyzer,
@@ -220,31 +223,56 @@ class BookLifecycle(
     bookId: String,
     resizeTo: Int? = null,
   ): TypedBytes? {
-    getThumbnail(bookId)?.let {
-      val thumbnailBytes =
-        when {
-          it.thumbnail != null -> it.thumbnail
-          it.url != null -> File(it.url.toURI()).readBytes()
-          else -> return null
+    val poster =
+      getSeriesPosterBytes(bookId)
+        ?: getThumbnail(bookId)?.let { thumb ->
+          getBytesFromThumbnailBook(thumb)?.let { TypedBytes(it, thumb.mediaType) }
         }
+        ?: return null
 
-      if (resizeTo != null) {
-        try {
-          return TypedBytes(
-            imageConverter.resizeImageToByteArray(thumbnailBytes, resizeTargetFormat, resizeTo),
-            resizeTargetFormat.mediaType,
-          )
-        } catch (e: Exception) {
-          logger.error(e) { "Resize thumbnail of book $bookId to $resizeTo: failed" }
-        }
+    if (resizeTo != null) {
+      try {
+        return TypedBytes(
+          imageConverter.resizeImageToByteArray(poster.bytes, resizeTargetFormat, resizeTo),
+          resizeTargetFormat.mediaType,
+        )
+      } catch (e: Exception) {
+        logger.error(e) { "Resize thumbnail of book $bookId to $resizeTo: failed" }
       }
-
-      return TypedBytes(thumbnailBytes, it.mediaType)
     }
-    return null
+
+    return poster
+  }
+
+  /**
+   * When the book's library uses [Library.BookPosterSource.SERIES], book posters are
+   * served from the series' selected poster. The bytes are read from the single
+   * series thumbnail at serve time - nothing is copied onto the book, so updating
+   * the series poster updates every book, and no per-book blob is stored.
+   * Returns null when the library uses book posters, or when the series has no
+   * selected poster, in which case callers fall back to the book's own poster.
+   */
+  private fun getSeriesPosterBytes(bookId: String): TypedBytes? {
+    val book = bookRepository.findByIdOrNull(bookId) ?: return null
+    val library = libraryRepository.findByIdOrNull(book.libraryId) ?: return null
+    if (library.bookPosterSource != Library.BookPosterSource.SERIES) return null
+
+    val poster = thumbnailSeriesRepository.findSelectedBySeriesIdOrNull(book.seriesId) ?: return null
+    if (!poster.exists()) return null
+
+    val bytes =
+      when {
+        poster.thumbnail != null -> poster.thumbnail
+        poster.url != null -> File(poster.url.toURI()).readBytes()
+        else -> null
+      } ?: return null
+
+    return TypedBytes(bytes, poster.mediaType)
   }
 
   fun getThumbnailBytesOriginal(bookId: String): TypedBytes? {
+    getSeriesPosterBytes(bookId)?.let { return it }
+
     val thumbnail = getThumbnail(bookId) ?: return null
     return if (thumbnail.type == ThumbnailBook.Type.GENERATED) {
       val book = bookRepository.findByIdOrNull(bookId) ?: return null

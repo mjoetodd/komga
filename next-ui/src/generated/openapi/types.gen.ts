@@ -335,6 +335,7 @@ export type LibraryCreationDto = {
     scanOnStartup: boolean;
     scanPdf: boolean;
     seriesCover: SeriesCoverEnum;
+    bookPosterSource: BookPosterSourceEnum;
 };
 
 export type LibraryDto = {
@@ -367,6 +368,7 @@ export type LibraryDto = {
     scanOnStartup: boolean;
     scanPdf: boolean;
     seriesCover: SeriesCoverEnum;
+    bookPosterSource: BookPosterSourceEnum;
     unavailable: boolean;
 };
 
@@ -402,6 +404,7 @@ export type LibraryUpdateDto = {
     scanOnStartup?: boolean;
     scanPdf?: boolean;
     seriesCover?: SeriesCoverEnum;
+    bookPosterSource?: BookPosterSourceEnum;
 };
 
 export type Location = {
@@ -1497,6 +1500,8 @@ export type CopyModeEnum = 'MOVE' | 'COPY' | 'HARDLINK';
 export type ScanIntervalEnum = 'DISABLED' | 'HOURLY' | 'EVERY_6H' | 'EVERY_12H' | 'DAILY' | 'WEEKLY';
 
 export type SeriesCoverEnum = 'FIRST' | 'FIRST_UNREAD_OR_FIRST' | 'FIRST_UNREAD_OR_LAST' | 'LAST';
+
+export type BookPosterSourceEnum = 'BOOK' | 'SERIES';
 
 export type ReadingDirectionEnum = 'LEFT_TO_RIGHT' | 'RIGHT_TO_LEFT' | 'VERTICAL' | 'WEBTOON';
 

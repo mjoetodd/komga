@@ -83,6 +83,10 @@
     "defaultMessage": "Close",
     "description": "Temp drawer: close button"
   },
+  "/s+xEc": {
+    "defaultMessage": "Book covers",
+    "description": "Form add/edit library: Options - section header for book covers"
+  },
   "02SRax": {
     "defaultMessage": "Sign in",
     "description": "Login screen: Sign In button"
@@ -2178,6 +2182,14 @@
   "egrxd6": {
     "defaultMessage": "User created: {email}",
     "description": "Snackbar notification shown upon successful user creation"
+  },
+  "enum.BookPosterSource.BOOK": {
+    "defaultMessage": "Each book's own cover",
+    "description": "Book poster source: BOOK"
+  },
+  "enum.BookPosterSource.SERIES": {
+    "defaultMessage": "Series cover",
+    "description": "Book poster source: SERIES"
   },
   "enum.MediaProfile.DIVINA": {
     "defaultMessage": "DiViNa",

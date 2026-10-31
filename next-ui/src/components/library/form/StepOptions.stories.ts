@@ -35,6 +35,7 @@ export const Default: Story = {
       hashPages: false,
       repairExtensions: false,
       seriesCover: 'FIRST',
+      bookPosterSource: 'BOOK',
     },
   },
 }

@@ -30,6 +30,7 @@ data class Library(
   val convertToCbz: Boolean = false,
   val emptyTrashAfterScan: Boolean = false,
   val seriesCover: SeriesCover = SeriesCover.FIRST,
+  val bookPosterSource: BookPosterSource = BookPosterSource.BOOK,
   val hashFiles: Boolean = true,
   val hashPages: Boolean = false,
   val hashKoreader: Boolean = false,
@@ -45,6 +46,16 @@ data class Library(
     FIRST_UNREAD_OR_FIRST,
     FIRST_UNREAD_OR_LAST,
     LAST,
+  }
+
+  /**
+   * Where book posters are served from. [SERIES] serves the series' selected
+   * poster in place of each book's own poster, without duplicating its bytes
+   * onto every book.
+   */
+  enum class BookPosterSource {
+    BOOK,
+    SERIES,
   }
 
   enum class ScanInterval {
