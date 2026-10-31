@@ -22,9 +22,11 @@ export interface TTSControllerOptions {
   speechLanguage?: string
   highlightMode?: 'sentence' | 'word' | 'off'
   // 'sentence' sends one sentence per TTS request; 'paragraph' batches a whole paragraph
-  // into one request to cut down round trips to the TTS provider. Highlighting (both the
-  // current-segment highlight and word highlighting) tracks whichever granularity is active.
-  chunkMode?: 'sentence' | 'paragraph'
+  // into one request to cut down round trips to the TTS provider; 'smart' groups a few
+  // sentences (same paragraph, bounded count/length) per request as a middle ground.
+  // Highlighting (both the current-segment highlight and word highlighting) tracks
+  // whichever granularity is active.
+  chunkMode?: 'sentence' | 'paragraph' | 'smart'
   // 'paginate' turns the page via onAdvancePage when the next sentence is off-screen;
   // 'scroll' instead scrolls the sentence to the vertical center of the iframe's own
   // viewport, since onAdvancePage's page-turn doesn't apply to continuous-scroll layouts.
@@ -58,7 +60,7 @@ export class TTSController {
   private voice: TTSVoice | undefined = undefined
   private speechLanguage: string | undefined = undefined
   private highlightMode: 'sentence' | 'word' | 'off' = 'sentence'
-  private chunkMode: 'sentence' | 'paragraph' = 'sentence'
+  private chunkMode: 'sentence' | 'paragraph' | 'smart' = 'sentence'
   private readingMode: 'paginate' | 'scroll' = 'paginate'
 
   // Callbacks
@@ -325,7 +327,7 @@ export class TTSController {
   // sentence index doesn't correspond to anything meaningful once segments are paragraphs,
   // and vice versa), so this re-extracts from the current document and repositions to
   // whatever's visible now, the same way an initial syncToVisiblePosition() would.
-  setChunkMode(mode: 'sentence' | 'paragraph') {
+  setChunkMode(mode: 'sentence' | 'paragraph' | 'smart') {
     if (this.chunkMode === mode || !this.doc) {
       this.chunkMode = mode
       return

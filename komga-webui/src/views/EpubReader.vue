@@ -445,8 +445,9 @@ export default Vue.extend({
         ttsRate: 1.0,
         ttsHighlightMode: 'sentence',
         ttsLanguage: '',
-        // 'sentence' sends one sentence per TTS request; 'paragraph' batches a whole
-        // paragraph per request to cut down round trips to the (often self-hosted) provider.
+        // 'sentence' sends one sentence per TTS request; 'smart' groups 2-3 sentences
+        // per request; 'paragraph' batches a whole paragraph per request to cut down
+        // round trips to the (often self-hosted) provider.
         ttsChunkMode: 'sentence',
         // Reading theme (background/text/chrome/highlight colors, layered on top of the
         // existing ReadiumCSS day/sepia/night appearance, which only controls in-book text

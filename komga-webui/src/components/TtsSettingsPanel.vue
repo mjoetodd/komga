@@ -64,7 +64,7 @@
       v-model="chunkMode"
       :items="chunkModes"
       label="Chunk Size"
-      hint="Paragraph mode sends fewer, larger requests to the TTS provider - faster overall, at the cost of highlighting a whole paragraph at a time instead of one sentence."
+      hint="Sentence sends one request per sentence. Smart groups 2-3 sentences per request - fewer gaps between sentences and more natural flow, with word highlighting kept. Paragraph sends the fewest requests, but highlights a whole paragraph at a time."
       persistent-hint
       outlined
       dense
@@ -133,6 +133,7 @@ export default Vue.extend({
       ],
       chunkModes: [
         { text: 'Sentence', value: 'sentence' },
+        { text: 'Smart (2-3 sentences)', value: 'smart' },
         { text: 'Paragraph', value: 'paragraph' },
       ],
     }

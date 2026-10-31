@@ -41,13 +41,17 @@ const IGNORE_TAGS = new Set([
 export class TextExtractor {
   // 'sentence' sends one sentence per TTS request (current default); 'paragraph' batches a
   // whole paragraph into one request, trading per-word/per-sentence highlight precision for
-  // far fewer round trips to the (often self-hosted, latency-sensitive) TTS provider. Word
-  // and segment highlighting both still work in paragraph mode - they operate generically on
-  // whatever segment was sent, not specifically on sentences.
+  // far fewer round trips to the (often self-hosted, latency-sensitive) TTS provider.
+  // 'smart' is the middle ground: it groups a few consecutive sentences (see segmentSmart)
+  // into one request - fewer synthesis round trips and more natural prosody across sentence
+  // boundaries than one-sentence-at-a-time, while each chunk's word list still carries every
+  // individual word, so word highlighting tracks inside the chunk exactly like sentence
+  // mode. Word and segment highlighting operate generically on whatever segment was sent,
+  // not specifically on sentences, in all three modes.
   static extract(
     doc: Document,
     locale = 'en',
-    chunkMode: 'sentence' | 'paragraph' = 'sentence',
+    chunkMode: 'sentence' | 'paragraph' | 'smart' = 'sentence',
   ): { flatText: string; sentences: TextSegment[] } {
     let flatText = ''
     const mappings: DOMTextRange[] = []
@@ -127,7 +131,9 @@ export class TextExtractor {
 
     const sentences = chunkMode === 'paragraph'
       ? this.segmentParagraphs(flatText, paragraphRanges, mappings, locale)
-      : this.segmentSentences(flatText, mappings, locale)
+      : chunkMode === 'smart'
+        ? this.segmentSmart(flatText, paragraphRanges, mappings, locale)
+        : this.segmentSentences(flatText, mappings, locale)
     return { flatText, sentences }
   }
 
@@ -225,6 +231,74 @@ export class TextExtractor {
     }
 
     return sentences
+  }
+
+  // Smart chunking bounds. A few sentences per request is enough to let the provider's
+  // prosody flow across sentence boundaries and to cut round trips substantially, while
+  // the character cap bounds how far estimated word timings can drift inside one chunk
+  // (the provider-side estimate is rescaled onto the chunk's real duration, so a shorter
+  // chunk also means a tighter rescale). A single sentence longer than the cap is never
+  // split - it simply forms a chunk of its own.
+  private static SMART_MAX_SENTENCES = 3
+  private static SMART_MAX_CHARS = 420
+
+  // Groups the sentence segments into smart chunks. Grouping never crosses a paragraph
+  // boundary: paragraphs are where natural pauses (and page/column breaks) live, and a
+  // chunk's DOM range stays inside one prose block. Sentences that sit outside every
+  // paragraph range (loose text in layout containers) share key -1 and may group with
+  // each other, but never with paragraphed text. A chunk's word list is the concatenation
+  // of its sentences' words - all in absolute flat-text offsets - so the controller's
+  // boundary-to-word mapping works unchanged, and the chunk text is the exact flat-text
+  // slice spanning its sentences, keeping provider-side char indexes aligned with the
+  // words' offsets relative to the chunk start.
+  private static segmentSmart(
+    flatText: string,
+    paragraphRanges: { start: number; end: number }[],
+    mappings: DOMTextRange[],
+    locale: string,
+  ): TextSegment[] {
+    const sentences = this.segmentSentences(flatText, mappings, locale)
+    if (sentences.length === 0) return sentences
+
+    const paragraphKey = (charIndex: number): number =>
+      paragraphRanges.findIndex((r) => charIndex >= r.start && charIndex < r.end)
+
+    const chunks: TextSegment[] = []
+    let group: TextSegment[] = []
+
+    const flush = () => {
+      if (group.length === 0) return
+      if (group.length === 1) {
+        chunks.push(group[0])
+      } else {
+        const start = group[0].startCharIndex
+        const end = group[group.length - 1].endCharIndex
+        chunks.push({
+          text: flatText.slice(start, end),
+          startCharIndex: start,
+          endCharIndex: end,
+          domPositions: this.getDOMPositions(start, end, mappings),
+          words: group.reduce<TextSegment[]>((acc, s) => acc.concat(s.words), []),
+        })
+      }
+      group = []
+    }
+
+    let groupKey = paragraphKey(sentences[0].startCharIndex)
+    for (const sentence of sentences) {
+      const key = paragraphKey(sentence.startCharIndex)
+      const wouldExceedChars = group.length > 0 &&
+        sentence.endCharIndex - group[0].startCharIndex > this.SMART_MAX_CHARS
+      if (group.length > 0 &&
+        (key !== groupKey || group.length >= this.SMART_MAX_SENTENCES || wouldExceedChars)) {
+        flush()
+      }
+      if (group.length === 0) groupKey = key
+      group.push(sentence)
+    }
+    flush()
+
+    return chunks
   }
 
   // Only used when Intl.Segmenter is unavailable/throws - that path is locale-aware and

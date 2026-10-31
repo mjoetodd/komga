@@ -448,13 +448,26 @@ export class ServerTTSProvider implements TTSProvider {
     const baseWpm = 160
     const charsPerSecond = (baseWpm * 5) / 60
 
+    // Real speech isn't a flat character stream: readers pause at punctuation, and the
+    // pause after a sentence is the single biggest timing feature inside a multi-sentence
+    // chunk. A purely length-proportional estimate assigns that pause zero time, so the
+    // highlight runs progressively ahead of the voice after every sentence boundary until
+    // the duration rescale's average catches up. Model the pauses explicitly - as extra
+    // time in the whitespace gap following the punctuated word, never inside the word's
+    // own span. The rescale in playPrepared still anchors the total to the real duration;
+    // this only improves the *shape* in between.
+    const sentencePauseSeconds = 0.28
+    const clausePauseSeconds = 0.12
+
     let charIndex = 0
     let currentTime = 0.0
+    let pendingPause = 0
 
     for (const part of words) {
       const partLength = part.length
       if (part.trim() === '') {
-        const duration = partLength / charsPerSecond
+        const duration = partLength / charsPerSecond + pendingPause
+        pendingPause = 0
         charIndex += partLength
         currentTime += duration
         continue
@@ -471,6 +484,15 @@ export class ServerTTSProvider implements TTSProvider {
 
       charIndex += partLength
       currentTime += duration
+
+      // Closing quotes/brackets belong to the punctuation they wrap ('...home."'), so
+      // look past them when deciding what this word ended with.
+      const tail = part.replace(/["'”’)\]]+$/, '')
+      if (/[.!?]$/.test(tail)) {
+        pendingPause = sentencePauseSeconds
+      } else if (/[,;:]$/.test(tail)) {
+        pendingPause = clausePauseSeconds
+      }
     }
 
     return boundaries
