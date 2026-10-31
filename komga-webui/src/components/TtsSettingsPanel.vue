@@ -16,18 +16,33 @@
       @change="onProviderChange"
     />
 
-    <v-select
-      v-model="voiceId"
-      :items="voices"
-      item-text="name"
-      item-value="id"
-      label="Voice"
-      outlined
-      dense
-      class="mb-2"
-      :loading="loadingVoices"
-      :disabled="loadingVoices || voices.length === 0"
-    />
+    <!-- Voice picker with an audition button: server providers can expose dozens of
+         voices (38 on Phonon), and a name alone says nothing about how one sounds.
+         Preview speaks one sample sentence with the selected voice. -->
+    <div class="d-flex align-start mb-2">
+      <v-select
+        v-model="voiceId"
+        :items="voices"
+        item-text="name"
+        item-value="id"
+        label="Voice"
+        outlined
+        dense
+        :loading="loadingVoices"
+        :disabled="loadingVoices || voices.length === 0"
+        style="flex: 1 1 auto"
+      />
+      <v-btn
+        icon
+        class="ml-2 mt-1"
+        :color="previewing ? 'error' : 'primary'"
+        :disabled="loadingVoices || voices.length === 0"
+        :title="previewing ? 'Stop preview' : 'Preview this voice'"
+        @click="togglePreview"
+      >
+        <v-icon>{{ previewing ? 'mdi-stop' : 'mdi-play-circle-outline' }}</v-icon>
+      </v-btn>
+    </div>
 
     <v-slider
       v-model="rate"
@@ -49,7 +64,7 @@
       v-model="chunkMode"
       :items="chunkModes"
       label="Chunk Size"
-      hint="Paragraph mode sends fewer, larger requests to the TTS provider - faster overall, at the cost of highlighting a whole paragraph at a time instead of one sentence."
+      hint="Sentence sends one request per sentence. Smart groups 2-3 sentences per request - fewer gaps between sentences and more natural flow, with word highlighting kept. Paragraph sends the fewest requests, but highlights a whole paragraph at a time."
       persistent-hint
       outlined
       dense
@@ -109,6 +124,7 @@ export default Vue.extend({
       voices: [] as TTSVoice[],
       languages: [] as string[],
       loadingVoices: false,
+      previewing: false,
       serverConfigured: true,
       highlightModes: [
         { text: 'Segment highlighting', value: 'sentence' },
@@ -117,6 +133,7 @@ export default Vue.extend({
       ],
       chunkModes: [
         { text: 'Sentence', value: 'sentence' },
+        { text: 'Smart (2-3 sentences)', value: 'smart' },
         { text: 'Paragraph', value: 'paragraph' },
       ],
     }
@@ -176,6 +193,9 @@ export default Vue.extend({
     this.loadVoices()
     this.refreshServerStatus()
   },
+  beforeDestroy() {
+    if (this.previewing) this.registry.getActiveProvider().cancel()
+  },
   methods: {
     async refreshServerStatus() {
       try {
@@ -205,7 +225,53 @@ export default Vue.extend({
         this.loadingVoices = false
       }
     },
+    // Auditions the selected voice with one sample sentence. Shares the provider
+    // singleton with the reading session, so: refuse to start while a session owns the
+    // provider, and park the controller's provider callbacks for the duration - the
+    // provider's onEnd/onError otherwise belong to TTSController, and a preview ending
+    // would look exactly like a sentence ending to it.
+    async togglePreview() {
+      const provider = this.registry.getActiveProvider()
+      if (this.previewing) {
+        provider.cancel()
+        return
+      }
+      if (provider.state !== 'idle') {
+        this.$emit('toast', 'Stop playback to preview a voice.')
+        return
+      }
+      const voice = this.voices.find(v => v.id === this.voiceId)
+      if (!voice) return
+
+      const parked = {
+        onEnd: provider.onEnd,
+        onError: provider.onError,
+        onBoundary: provider.onBoundary,
+      }
+      provider.onEnd = () => {}
+      provider.onError = () => {}
+      provider.onBoundary = () => {}
+      const restore = () => {
+        provider.onEnd = parked.onEnd
+        provider.onError = parked.onError
+        provider.onBoundary = parked.onBoundary
+        this.previewing = false
+      }
+
+      this.previewing = true
+      try {
+        const utterance = await provider.speak(
+          'This is the voice that will read your book aloud.',
+          { voice, rate: this.rate },
+        )
+        utterance.promise.then(restore, restore)
+      } catch (e) {
+        restore()
+        this.$emit('toast', 'Voice preview failed.')
+      }
+    },
     async onProviderChange(newProviderId: string) {
+      if (this.previewing) this.registry.getActiveProvider().cancel()
       try {
         // Don't seed the new provider with the outgoing provider's voiceId - it's a
         // foreign id (e.g. a browser voice name) that the new provider doesn't recognize.

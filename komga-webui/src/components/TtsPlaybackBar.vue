@@ -16,6 +16,12 @@
       </v-card>
 
       <v-card v-else class="komga-tts-playback-bar elevation-8" rounded="lg" :style="barStyle">
+        <!-- Chapter progress: how far through this chapter's segments playback has got.
+             Purely positional (segment count), so it advances in sentence/paragraph steps
+             rather than smoothly - accurate, and honest about the granularity. -->
+        <div v-if="totalSegments > 0" class="progress-track">
+          <div class="progress-fill" :style="{ width: progressPercent + '%' }" />
+        </div>
         <v-row no-gutters align="center" class="bar-row px-2 px-sm-4 py-2">
 
           <!-- Minimize Button -->
@@ -50,7 +56,9 @@
                sentence/paragraph is already highlighted in the page itself, and this was the
                main thing pushing the bar's minimum width past what fits on a phone screen. -->
           <v-col class="preview-col d-none d-sm-flex px-4 text-truncate text-body-2 font-weight-medium">
-            <span class="preview-label text-caption d-block" style="opacity: 0.7">Reading:</span>
+            <span class="preview-label text-caption d-block" style="opacity: 0.7">
+              Reading<template v-if="totalSegments > 0"> · {{ currentSegment + 1 }} of {{ totalSegments }}</template>:
+            </span>
             <span class="preview-text" :title="sentenceText">{{ sentenceText || '...' }}</span>
           </v-col>
 
@@ -65,6 +73,47 @@
             <v-btn icon x-small @click="$emit('speed-up')" title="Faster">
               <v-icon small>mdi-plus</v-icon>
             </v-btn>
+          </v-col>
+
+          <!-- Sleep Timer: stop playback after a set time - the read-aloud equivalent of
+               an audiobook sleep timer. The minute options live entirely in this
+               component: they count down locally and simply emit the existing 'stop'
+               when they fire. "End of chapter" has no countdown to run - it emits
+               'sleep-chapter' and lets EpubReader decide, at the chapter boundary,
+               between advancing (normal) and stopping (sleep). -->
+          <v-col cols="auto" class="d-flex align-center">
+            <v-menu offset-y>
+              <template v-slot:activator="{ on, attrs }">
+                <v-btn
+                  icon
+                  small
+                  v-bind="attrs"
+                  v-on="on"
+                  :color="sleepRemainingSec > 0 || sleepMinutes === -1 ? 'primary' : ''"
+                  title="Sleep timer"
+                >
+                  <v-icon>mdi-timer-outline</v-icon>
+                </v-btn>
+              </template>
+              <v-list dense>
+                <v-list-item
+                  v-for="option in sleepOptions"
+                  :key="option.minutes"
+                  @click="setSleepTimer(option.minutes)"
+                >
+                  <v-list-item-title>
+                    {{ option.label }}
+                    <v-icon v-if="sleepMinutes === option.minutes" small class="ml-1">mdi-check</v-icon>
+                  </v-list-item-title>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <span v-if="sleepRemainingSec > 0" class="text-caption font-weight-bold mr-1" style="min-width: 34px;">
+              {{ sleepRemainingLabel }}
+            </span>
+            <span v-else-if="sleepMinutes === -1" class="text-caption font-weight-bold mr-1">
+              Chapter end
+            </span>
           </v-col>
 
           <!-- Stop/Close Button -->
@@ -108,6 +157,18 @@ export default Vue.extend({
   data() {
     return {
       minimized: false,
+      sleepMinutes: 0,
+      sleepRemainingSec: 0,
+      sleepIntervalId: null as number | null,
+      sleepOptions: [
+        { minutes: 0, label: 'Off' },
+        { minutes: -1, label: 'End of chapter' },
+        { minutes: 10, label: '10 minutes' },
+        { minutes: 20, label: '20 minutes' },
+        { minutes: 30, label: '30 minutes' },
+        { minutes: 45, label: '45 minutes' },
+        { minutes: 60, label: '60 minutes' },
+      ],
     }
   },
   props: {
@@ -127,6 +188,20 @@ export default Vue.extend({
       type: Number,
       required: true,
     },
+    // 0..1 through the current chapter's segments, plus the raw position for the
+    // "12 of 348" caption. Optional: older callers may not pass them.
+    progress: {
+      type: Number,
+      default: 0,
+    },
+    currentSegment: {
+      type: Number,
+      default: 0,
+    },
+    totalSegments: {
+      type: Number,
+      default: 0,
+    },
     // { background, text, uiChrome, swatch, highlight } from the active reading theme
     // (komga-webui/src/functions/epub-themes.ts), or undefined before EpubReader resolves it.
     themeVariant: {
@@ -135,6 +210,15 @@ export default Vue.extend({
     },
   },
   computed: {
+    progressPercent(): number {
+      return Math.round(Math.min(Math.max(this.progress, 0), 1) * 100)
+    },
+    sleepRemainingLabel(): string {
+      const total = this.sleepRemainingSec
+      const m = Math.floor(total / 60)
+      const s = total % 60
+      return `${m}:${s.toString().padStart(2, '0')}`
+    },
     // Prefer the active reading theme's own chrome/text colors so the bar visually matches
     // whichever of the 5 themes is selected, but only if that pairing clears WCAG AA (4.5:1).
     // Themes are authored as reading backgrounds, not necessarily as UI-chrome/text pairs, so
@@ -152,6 +236,56 @@ export default Vue.extend({
         backgroundColor: 'rgba(0, 0, 0, 0.75)',
         color: '#FFFFFF',
       }
+    },
+  },
+  watch: {
+    // A stopped session shouldn't leave a live countdown behind (it would fire 'stop'
+    // into a future session).
+    active(isActive: boolean) {
+      if (!isActive) this.clearSleepTimer()
+    },
+  },
+  beforeDestroy() {
+    this.clearSleepTimer()
+  },
+  methods: {
+    setSleepTimer(minutes: number) {
+      this.clearSleepTimer()
+      this.sleepMinutes = minutes
+      if (minutes === -1) {
+        // "End of chapter": nothing to count down. EpubReader owns the chapter-end
+        // decision, so hand the request up and let it stop there instead of advancing.
+        this.$emit('sleep-chapter', true)
+        return
+      }
+      if (minutes <= 0) return
+      // Anchor to a wall-clock deadline rather than decrementing blindly: interval ticks
+      // are throttled in background tabs, and the remaining label should stay truthful.
+      const deadline = Date.now() + minutes * 60 * 1000
+      const tick = () => {
+        const remaining = Math.round((deadline - Date.now()) / 1000)
+        this.sleepRemainingSec = Math.max(remaining, 0)
+        if (remaining <= 0) {
+          this.clearSleepTimer()
+          this.$emit('stop')
+        }
+      }
+      tick()
+      this.sleepIntervalId = window.setInterval(tick, 1000)
+    },
+    clearSleepTimer() {
+      if (this.sleepIntervalId !== null) {
+        clearInterval(this.sleepIntervalId)
+        this.sleepIntervalId = null
+      }
+      // Keep EpubReader's chapter-end flag in sync when chapter mode is torn down from
+      // here (session stopped, component destroyed, or another option picked) - a stale
+      // flag would otherwise stop the *next* session at its first chapter end.
+      if (this.sleepMinutes === -1) {
+        this.$emit('sleep-chapter', false)
+      }
+      this.sleepMinutes = 0
+      this.sleepRemainingSec = 0
     },
   },
 })
@@ -175,6 +309,20 @@ export default Vue.extend({
   backdrop-filter: blur(12px);
   border: 1px solid rgba(128, 128, 128, 0.15);
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.progress-track {
+  height: 3px;
+  background-color: rgba(128, 128, 128, 0.25);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--v-primary-base, #1976d2);
+  transition: width 0.4s ease;
 }
 
 .bar-row {

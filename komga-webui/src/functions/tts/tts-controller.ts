@@ -22,9 +22,11 @@ export interface TTSControllerOptions {
   speechLanguage?: string
   highlightMode?: 'sentence' | 'word' | 'off'
   // 'sentence' sends one sentence per TTS request; 'paragraph' batches a whole paragraph
-  // into one request to cut down round trips to the TTS provider. Highlighting (both the
-  // current-segment highlight and word highlighting) tracks whichever granularity is active.
-  chunkMode?: 'sentence' | 'paragraph'
+  // into one request to cut down round trips to the TTS provider; 'smart' groups a few
+  // sentences (same paragraph, bounded count/length) per request as a middle ground.
+  // Highlighting (both the current-segment highlight and word highlighting) tracks
+  // whichever granularity is active.
+  chunkMode?: 'sentence' | 'paragraph' | 'smart'
   // 'paginate' turns the page via onAdvancePage when the next sentence is off-screen;
   // 'scroll' instead scrolls the sentence to the vertical center of the iframe's own
   // viewport, since onAdvancePage's page-turn doesn't apply to continuous-scroll layouts.
@@ -34,7 +36,9 @@ export interface TTSControllerOptions {
   // Called when the sentence about to be read is off-screen (e.g. a later page in a
   // paginated/columned layout) so the reader can turn the page to keep up with playback.
   onAdvancePage?: () => void
-  onProgress?: (progressPercent: number) => void
+  // progressPercent is 0..1 across the current chapter/document; currentIndex/totalCount
+  // give the segment position ("Sentence 12 of 348") for richer playback UI.
+  onProgress?: (progressPercent: number, currentIndex: number, totalCount: number) => void
 }
 
 export class TTSController {
@@ -56,14 +60,14 @@ export class TTSController {
   private voice: TTSVoice | undefined = undefined
   private speechLanguage: string | undefined = undefined
   private highlightMode: 'sentence' | 'word' | 'off' = 'sentence'
-  private chunkMode: 'sentence' | 'paragraph' = 'sentence'
+  private chunkMode: 'sentence' | 'paragraph' | 'smart' = 'sentence'
   private readingMode: 'paginate' | 'scroll' = 'paginate'
 
   // Callbacks
   private onStateChange?: (state: TTSState) => void
   private onChapterEnd?: () => void
   private onAdvancePage?: () => void
-  private onProgress?: (progressPercent: number) => void
+  private onProgress?: (progressPercent: number, currentIndex: number, totalCount: number) => void
 
   constructor(options: TTSControllerOptions = {}) {
     this.updateOptions(options)
@@ -323,7 +327,7 @@ export class TTSController {
   // sentence index doesn't correspond to anything meaningful once segments are paragraphs,
   // and vice versa), so this re-extracts from the current document and repositions to
   // whatever's visible now, the same way an initial syncToVisiblePosition() would.
-  setChunkMode(mode: 'sentence' | 'paragraph') {
+  setChunkMode(mode: 'sentence' | 'paragraph' | 'smart') {
     if (this.chunkMode === mode || !this.doc) {
       this.chunkMode = mode
       return
@@ -381,7 +385,7 @@ export class TTSController {
     // Notify Progress
     if (this.onProgress) {
       const progress = this.sentences.length > 0 ? (this.currentSentenceIndex / this.sentences.length) : 0
-      this.onProgress(progress)
+      this.onProgress(progress, this.currentSentenceIndex, this.sentences.length)
     }
 
     const sentenceRange = TextExtractor.createRangeFromPositions(this.doc, sentence.domPositions)
