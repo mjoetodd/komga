@@ -76,8 +76,11 @@
           </v-col>
 
           <!-- Sleep Timer: stop playback after a set time - the read-aloud equivalent of
-               an audiobook sleep timer. Lives entirely in this component: it counts down
-               locally and simply emits the existing 'stop' when it fires. -->
+               an audiobook sleep timer. The minute options live entirely in this
+               component: they count down locally and simply emit the existing 'stop'
+               when they fire. "End of chapter" has no countdown to run - it emits
+               'sleep-chapter' and lets EpubReader decide, at the chapter boundary,
+               between advancing (normal) and stopping (sleep). -->
           <v-col cols="auto" class="d-flex align-center">
             <v-menu offset-y>
               <template v-slot:activator="{ on, attrs }">
@@ -86,7 +89,7 @@
                   small
                   v-bind="attrs"
                   v-on="on"
-                  :color="sleepRemainingSec > 0 ? 'primary' : ''"
+                  :color="sleepRemainingSec > 0 || sleepMinutes === -1 ? 'primary' : ''"
                   title="Sleep timer"
                 >
                   <v-icon>mdi-timer-outline</v-icon>
@@ -107,6 +110,9 @@
             </v-menu>
             <span v-if="sleepRemainingSec > 0" class="text-caption font-weight-bold mr-1" style="min-width: 34px;">
               {{ sleepRemainingLabel }}
+            </span>
+            <span v-else-if="sleepMinutes === -1" class="text-caption font-weight-bold mr-1">
+              Chapter end
             </span>
           </v-col>
 
@@ -156,6 +162,7 @@ export default Vue.extend({
       sleepIntervalId: null as number | null,
       sleepOptions: [
         { minutes: 0, label: 'Off' },
+        { minutes: -1, label: 'End of chapter' },
         { minutes: 10, label: '10 minutes' },
         { minutes: 20, label: '20 minutes' },
         { minutes: 30, label: '30 minutes' },
@@ -245,6 +252,12 @@ export default Vue.extend({
     setSleepTimer(minutes: number) {
       this.clearSleepTimer()
       this.sleepMinutes = minutes
+      if (minutes === -1) {
+        // "End of chapter": nothing to count down. EpubReader owns the chapter-end
+        // decision, so hand the request up and let it stop there instead of advancing.
+        this.$emit('sleep-chapter', true)
+        return
+      }
       if (minutes <= 0) return
       // Anchor to a wall-clock deadline rather than decrementing blindly: interval ticks
       // are throttled in background tabs, and the remaining label should stay truthful.
@@ -264,6 +277,12 @@ export default Vue.extend({
       if (this.sleepIntervalId !== null) {
         clearInterval(this.sleepIntervalId)
         this.sleepIntervalId = null
+      }
+      // Keep EpubReader's chapter-end flag in sync when chapter mode is torn down from
+      // here (session stopped, component destroyed, or another option picked) - a stale
+      // flag would otherwise stop the *next* session at its first chapter end.
+      if (this.sleepMinutes === -1) {
+        this.$emit('sleep-chapter', false)
       }
       this.sleepMinutes = 0
       this.sleepRemainingSec = 0

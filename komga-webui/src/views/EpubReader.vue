@@ -312,6 +312,7 @@
       :theme-variant="activeThemeVariant"
       @toggle-play="toggleTtsPlay"
       @stop="stopTTS"
+      @sleep-chapter="onTtsSleepChapter"
       @prev="skipTtsPrev"
       @next="skipTtsNext"
       @speed-up="adjustTtsSpeed(0.1)"
@@ -338,7 +339,7 @@
 <script lang="ts">
 import Vue from 'vue'
 import D2Reader, {Locator} from '@d-i-t-a/reader'
-import urls, {bookManifestUrl, bookPositionsUrl} from '@/functions/urls'
+import urls, {bookManifestUrl, bookPositionsUrl, bookThumbnailUrl} from '@/functions/urls'
 import {BookDto} from '@/types/komga-books'
 import {getBookTitleCompact} from '@/functions/book-title'
 import {SeriesDto} from '@/types/komga-series'
@@ -489,6 +490,9 @@ export default Vue.extend({
       ttsProgress: 0,
       ttsSegmentIndex: 0,
       ttsSegmentTotal: 0,
+      // Set by the playback bar's "End of chapter" sleep option; consumed (and cleared)
+      // by the controller's onChapterEnd below, which then stops instead of advancing.
+      ttsSleepAtChapterEnd: false,
     }
   },
   created() {
@@ -501,6 +505,7 @@ export default Vue.extend({
       this.ttsController.stop()
       this.ttsController = null
     }
+    this.clearMediaSession()
     const meta = document.querySelector('meta[name="theme-color"]')
     if (meta && this.themeColorMetaOriginal !== undefined) {
       meta.setAttribute('content', this.themeColorMetaOriginal)
@@ -1073,8 +1078,18 @@ export default Vue.extend({
           if (this.ttsController) {
             this.ttsSentenceText = this.ttsController.getCurrentSentenceText()
           }
+          this.updateMediaSessionPlaybackState()
         },
         onChapterEnd: () => {
+          // Sleep timer set to "End of chapter": stop here instead of advancing into
+          // the next chapter. The bar clears its own timer state once the session goes
+          // inactive; the flag is consumed here either way, so it can't leak into the
+          // next session.
+          if (this.ttsSleepAtChapterEnd) {
+            this.ttsSleepAtChapterEnd = false
+            this.stopTTS()
+            return
+          }
           this.d2Reader.nextPage()
         },
         onAdvancePage: () => {
@@ -1100,6 +1115,9 @@ export default Vue.extend({
     async syncTtsDocument() {
       this.initTTSController()
       if (!this.ttsController) return
+      // Runs on every chapter/resource sync, which also keeps the Media Session
+      // metadata pointed at the current book when the reader moves between books.
+      this.setupMediaSession()
 
       const iframe = this.getReaderIframe()
       if (iframe && iframe.contentDocument) {
@@ -1176,6 +1194,74 @@ export default Vue.extend({
       if (this.ttsController) {
         this.ttsController.stop()
       }
+    },
+    onTtsSleepChapter(enabled: boolean) {
+      this.ttsSleepAtChapterEnd = enabled
+    },
+    // Media Session: the difference between "a web page making noise" and an audiobook
+    // on mobile - the lock screen / headphone / car controls get play, pause, stop and
+    // previous/next segment, and the book's cover and title are what they show. All of
+    // it is feature-detected and any-cast: support (and the TS DOM types) vary by
+    // browser vintage, and none of it is worth breaking playback over.
+    setupMediaSession() {
+      const nav = navigator as any
+      if (!nav.mediaSession || typeof (window as any).MediaMetadata !== 'function') return
+      const ms = nav.mediaSession
+      const authors = (this.book?.metadata?.authors ?? []).map(a => a.name).filter(Boolean)
+      try {
+        ms.metadata = new (window as any).MediaMetadata({
+          title: this.book?.metadata?.title || 'Komga',
+          artist: authors.length > 0 ? authors.join(', ') : (this.series?.metadata?.title || ''),
+          album: this.series?.metadata?.title || '',
+          artwork: this.bookId
+            ? [{ src: bookThumbnailUrl(this.bookId), sizes: '512x512', type: 'image/jpeg' }]
+            : [],
+        })
+      } catch (e) { /* metadata is decorative - never block playback on it */ }
+      const setHandler = (action: string, handler: (() => void) | null) => {
+        try {
+          ms.setActionHandler(action, handler)
+        } catch (e) { /* action unsupported on this browser */ }
+      }
+      setHandler('play', () => {
+        if (this.ttsState === 'paused') {
+          this.ttsController?.play()
+        } else if (this.ttsState === 'idle') {
+          // Same entry path as the toolbar button: syncs to the visible position first.
+          this.toggleTtsPlayback()
+        }
+      })
+      setHandler('pause', () => this.ttsController?.pause())
+      setHandler('stop', () => this.stopTTS())
+      setHandler('previoustrack', () => this.skipTtsPrev())
+      setHandler('nexttrack', () => this.skipTtsNext())
+      setHandler('seekbackward', () => this.skipTtsPrev())
+      setHandler('seekforward', () => this.skipTtsNext())
+      this.updateMediaSessionPlaybackState()
+    },
+    updateMediaSessionPlaybackState() {
+      const nav = navigator as any
+      if (!nav.mediaSession) return
+      try {
+        nav.mediaSession.playbackState =
+          this.ttsState === 'speaking' ? 'playing' : this.ttsState === 'paused' ? 'paused' : 'none'
+      } catch (e) { /* older browsers */ }
+    },
+    clearMediaSession() {
+      const nav = navigator as any
+      if (!nav.mediaSession) return
+      const ms = nav.mediaSession
+      for (const action of ['play', 'pause', 'stop', 'previoustrack', 'nexttrack', 'seekbackward', 'seekforward']) {
+        try {
+          ms.setActionHandler(action, null)
+        } catch (e) { /* ignore */ }
+      }
+      try {
+        ms.metadata = null
+      } catch (e) { /* ignore */ }
+      try {
+        ms.playbackState = 'none'
+      } catch (e) { /* ignore */ }
     },
     skipTtsPrev() {
       if (this.ttsController) {
