@@ -22,6 +22,7 @@ export const mockBook = {
   name: 'Super_Duck_001__MLJ___Fall_1944___c2c___titansfan_editor_',
   url: '/books/Super Duck/Super_Duck_001__MLJ___Fall_1944___c2c___titansfan_editor_.cbz',
   number: 1,
+  audiobook: false,
   created: new Date('2021-07-27T13:33:52Z'),
   lastModified: new Date('2023-07-22T11:14:47Z'),
   fileLastModified: new Date('2020-03-05T03:20:12Z'),
