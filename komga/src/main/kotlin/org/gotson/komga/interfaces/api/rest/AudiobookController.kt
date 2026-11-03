@@ -48,7 +48,7 @@ data class AudiobookDto(
  * synthesizing speech in real time.
  */
 @RestController
-@RequestMapping(value = ["api/v1/books/{bookId}/audiobook"], produces = [MediaType.ALL_VALUE])
+@RequestMapping(value = ["api/v1/books/{bookId}/audiobook"])
 class AudiobookController(
   private val bookRepository: BookRepository,
   private val audiobookService: AudiobookService,
@@ -63,7 +63,11 @@ class AudiobookController(
     return audiobookService.findForBook(book) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "No audiobook for this book")
   }
 
-  @GetMapping
+  // produces must name JSON explicitly: a wildcard produces leaves the content
+  // type unset, and Spring then finds no converter for a DTO return when the
+  // client sends a bare Accept: */* (plain fetch/curl) - the same quirk makes
+  // /api/v1/tts/status fail for such clients.
+  @GetMapping(produces = [MediaType.APPLICATION_JSON_VALUE])
   @Operation(summary = "Get a book's prebuilt audiobook metadata and sync map")
   fun getAudiobook(
     @AuthenticationPrincipal principal: KomgaPrincipal,

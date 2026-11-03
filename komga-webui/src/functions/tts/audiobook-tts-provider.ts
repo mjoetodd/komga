@@ -72,6 +72,7 @@ export class AudiobookTTSProvider implements TTSProvider {
 
     const response = await fetch(`${urls.originNoSlash}/api/v1/books/${this.bookId}/audiobook`, {
       credentials: 'include',
+      headers: { Accept: 'application/json' },
     })
     if (!response.ok) {
       throw new Error(`Audiobook metadata request failed (${response.status})`)
