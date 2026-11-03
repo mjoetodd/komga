@@ -71,6 +71,7 @@ class BookDtoDao(
   private val bt = Tables.BOOK_METADATA_TAG
   private val bl = Tables.BOOK_METADATA_LINK
   private val ne = Tables.BOOK_METADATA_NOTABLE_ENTITIES
+  private val sc = Tables.SIDECAR
 
   private val onDeckFields = b.fields() + m.fields() + d.fields() + r.fields() + sd.TITLE
 
@@ -483,6 +484,20 @@ class BookDtoDao(
           .groupBy({ it.bookId }, { NotableEntityDto(it.kind, it.name) })
     }
 
+    // Books with an indexed audiobook sidecar: the sidecar table stores the
+    // sidecar URL with the owning book's URL as its parent URL.
+    val audiobookParentUrls: Set<String> =
+      if (bookIds.isEmpty()) {
+        emptySet()
+      } else {
+        dsl
+          .select(sc.PARENT_URL)
+          .from(sc)
+          .where(sc.PARENT_URL.`in`(records.getValues(b.URL)))
+          .and(sc.URL.like("%.audio.mp3"))
+          .fetchSet(sc.PARENT_URL)
+      }
+
     return records
       .map { rec ->
         val br = rec.into(b)
@@ -491,7 +506,7 @@ class BookDtoDao(
         val rr = rec.into(r)
         val seriesTitle = rec.into(sd.TITLE).component1()
 
-        br.toDto(mr.toDto(), dr.toDto(authors[br.id].orEmpty(), tags[br.id].orEmpty().toSet(), links[br.id].orEmpty(), notableEntities[br.id].orEmpty()), if (rr.userId != null) rr.toDto() else null, seriesTitle)
+        br.toDto(mr.toDto(), dr.toDto(authors[br.id].orEmpty(), tags[br.id].orEmpty().toSet(), links[br.id].orEmpty(), notableEntities[br.id].orEmpty()), if (rr.userId != null) rr.toDto() else null, seriesTitle, br.url in audiobookParentUrls)
       }
   }
 
@@ -500,6 +515,7 @@ class BookDtoDao(
     metadata: BookMetadataDto,
     readProgress: ReadProgressDto?,
     seriesTitle: String,
+    audiobook: Boolean = false,
   ) = BookDto(
     id = id,
     seriesId = seriesId,
@@ -518,6 +534,7 @@ class BookDtoDao(
     deleted = deletedDate != null,
     fileHash = fileHash,
     oneshot = oneshot,
+    audiobook = audiobook,
   )
 
   private fun MediaRecord.toDto() =

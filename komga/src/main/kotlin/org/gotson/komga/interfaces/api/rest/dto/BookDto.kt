@@ -29,6 +29,9 @@ data class BookDto(
   val deleted: Boolean,
   val fileHash: String,
   val oneshot: Boolean,
+  // true when a prebuilt audiobook sidecar (<name>.audio.mp3) was indexed for
+  // this book during a library scan - see AudiobookSidecarConsumer
+  val audiobook: Boolean = false,
 )
 
 fun BookDto.restrictUrl(restrict: Boolean) = if (restrict) copy(url = FilenameUtils.getName(url)) else this

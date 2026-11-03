@@ -21,6 +21,18 @@
           <!-- unread tick for book -->
           <div class="unread" v-if="isUnread"/>
 
+          <!-- audiobook available for book -->
+          <v-chip v-if="hasAudiobook"
+                  x-small
+                  color="primary"
+                  class="white--text font-weight-bold"
+                  style="position: absolute; top: 6px; right: 6px"
+                  title="A prebuilt audiobook is available for this book"
+          >
+            <v-icon left x-small>mdi-headphones</v-icon>
+            Audiobook
+          </v-chip>
+
           <!-- unread count for series -->
           <span v-else-if="unreadCount"
                 class="white--text pa-1 px-2 text-subtitle-2"
@@ -335,6 +347,12 @@ export default Vue.extend({
     bookReady(): boolean {
       if (this.computedItem.type() === ItemTypes.BOOK) {
         return (this.item as BookDto).media.status === 'READY'
+      }
+      return false
+    },
+    hasAudiobook(): boolean {
+      if (this.computedItem.type() === ItemTypes.BOOK) {
+        return (this.item as BookDto).audiobook === true
       }
       return false
     },

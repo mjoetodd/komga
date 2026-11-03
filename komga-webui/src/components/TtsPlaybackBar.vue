@@ -57,7 +57,7 @@
                main thing pushing the bar's minimum width past what fits on a phone screen. -->
           <v-col class="preview-col d-none d-sm-flex px-4 text-truncate text-body-2 font-weight-medium">
             <span class="preview-label text-caption d-block" style="opacity: 0.7">
-              Reading<template v-if="totalSegments > 0"> · {{ currentSegment + 1 }} of {{ totalSegments }}</template>:
+              <template v-if="audiobook">Audiobook<template v-if="audiobookVoice"> · {{ audiobookVoice }}</template></template><template v-else>Reading</template><template v-if="totalSegments > 0"> · {{ currentSegment + 1 }} of {{ totalSegments }}</template>:
             </span>
             <span class="preview-text" :title="sentenceText">{{ sentenceText || '...' }}</span>
           </v-col>
@@ -179,6 +179,16 @@ export default Vue.extend({
     state: {
       type: String, // 'idle' | 'speaking' | 'paused'
       required: true,
+    },
+    // When true, playback is a prebuilt audiobook (exact sync) rather than
+    // realtime TTS - shown in the bar so the user can tell the difference.
+    audiobook: {
+      type: Boolean,
+      default: false,
+    },
+    audiobookVoice: {
+      type: String,
+      default: '',
     },
     sentenceText: {
       type: String,

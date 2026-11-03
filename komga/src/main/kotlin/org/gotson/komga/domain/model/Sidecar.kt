@@ -13,6 +13,7 @@ data class Sidecar(
   enum class Type {
     ARTWORK,
     METADATA,
+    AUDIO,
   }
 
   enum class Source {

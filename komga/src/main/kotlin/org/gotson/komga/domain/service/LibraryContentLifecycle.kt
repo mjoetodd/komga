@@ -233,6 +233,9 @@ class LibraryContentLifecycle(
                 when (newSidecar.type) {
                   Sidecar.Type.ARTWORK -> taskEmitter.refreshSeriesLocalArtwork(series.id)
                   Sidecar.Type.METADATA -> taskEmitter.refreshSeriesMetadata(series.id)
+                  // audiobook sidecars are indexed in the sidecar table (the book DTO
+                  // derives its audiobook flag from it) - no refresh task needed
+                  Sidecar.Type.AUDIO -> Unit
                 }
               }
 
@@ -242,6 +245,9 @@ class LibraryContentLifecycle(
                 when (newSidecar.type) {
                   Sidecar.Type.ARTWORK -> taskEmitter.refreshBookLocalArtwork(book)
                   Sidecar.Type.METADATA -> taskEmitter.refreshBookMetadata(book)
+                  // audiobook sidecars are indexed in the sidecar table (the book DTO
+                  // derives its audiobook flag from it) - no refresh task needed
+                  Sidecar.Type.AUDIO -> Unit
                 }
               }
           }

@@ -185,6 +185,13 @@
                   {{ $t('common.unavailable') }}
                 </v-chip>
               </v-col>
+
+              <v-col class="py-1 pe-0" cols="auto" v-if="book.audiobook">
+                <v-chip label small color="primary" title="A prebuilt audiobook is available for this book — open it in the reader and press Listen">
+                  <v-icon left small>mdi-headphones</v-icon>
+                  Audiobook available
+                </v-chip>
+              </v-col>
             </v-row>
 
 

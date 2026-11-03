@@ -35,9 +35,9 @@
           icon
           :color="ttsActive ? 'primary' : ''"
           @click="toggleTtsPlayback"
-          title="Toggle TTS Read Aloud"
+          :title="audiobookMode ? 'Listen to the prebuilt audiobook' : 'Toggle TTS Read Aloud'"
         >
-          <v-icon>{{ ttsState === 'speaking' ? 'mdi-stop-circle-outline' : 'mdi-account-voice' }}</v-icon>
+          <v-icon>{{ ttsState === 'speaking' ? 'mdi-stop-circle-outline' : (audiobookMode ? 'mdi-headphones' : 'mdi-account-voice') }}</v-icon>
         </v-btn>
 
         <v-btn
@@ -304,6 +304,8 @@
     <tts-playback-bar
       :active="ttsActive"
       :state="ttsState"
+      :audiobook="audiobookMode"
+      :audiobook-voice="audiobookVoice"
       :sentence-text="ttsSentenceText"
       :speed="settings.ttsRate"
       :progress="ttsProgress"
@@ -493,6 +495,10 @@ export default Vue.extend({
       // Set by the playback bar's "End of chapter" sleep option; consumed (and cleared)
       // by the controller's onChapterEnd below, which then stops instead of advancing.
       ttsSleepAtChapterEnd: false,
+      // True when the current book has a prebuilt audiobook: the TTS stack then plays
+      // the audiobook file (exact sync map) instead of synthesizing speech in real time.
+      audiobookMode: false,
+      audiobookVoice: '',
     }
   },
   created() {
@@ -1065,12 +1071,19 @@ export default Vue.extend({
     initTTSController() {
       if (this.ttsController) return
 
+      // A book with a prebuilt audiobook swaps the TTS stack to audiobook
+      // playback: same controller, bar and highlighting, but the provider plays
+      // the prebuilt file against its exact sync map. Audiobooks are generated
+      // with 'smart' chunking, so the controller must extract with the same
+      // mode for its segments to line up 1:1 with the sync map.
+      this.audiobookMode = (this.book as any)?.audiobook === true
+
       this.ttsController = new TTSController({
         locale: this.book?.metadata?.language || 'en',
         rate: this.settings.ttsRate,
         speechLanguage: this.settings.ttsLanguage || undefined,
         highlightMode: this.settings.ttsHighlightMode,
-        chunkMode: this.settings.ttsChunkMode,
+        chunkMode: this.audiobookMode ? 'smart' : this.settings.ttsChunkMode,
         readingMode: this.settings.verticalScroll ? 'scroll' : 'paginate',
         onStateChange: (state) => {
           this.ttsState = state
@@ -1103,14 +1116,39 @@ export default Vue.extend({
       })
       
       const registry = TTSProviderRegistry.getInstance()
-      registry.setActiveProvider(this.settings.ttsProviderId, {
-        voiceId: this.settings.ttsVoiceId,
-      }).then((provider) => {
-        provider.getVoices().then((voices) => {
-          const v = voices.find(x => x.id === this.settings.ttsVoiceId)
-          if (v) this.ttsController?.setVoice(v)
+      if (this.audiobookMode) {
+        registry.setActiveProvider('audiobook', {
+          bookId: (this.book as any)?.id,
+        }).then((provider) => {
+          provider.getVoices().then((voices) => {
+            const v = voices[0]
+            if (v) {
+              this.audiobookVoice = v.id
+              this.ttsController?.setVoice(v)
+            }
+          })
+        }).catch(() => {
+          // Audiobook metadata failed to load - fall back to the configured
+          // realtime provider rather than leaving TTS broken.
+          this.audiobookMode = false
+          registry.setActiveProvider(this.settings.ttsProviderId, {
+            voiceId: this.settings.ttsVoiceId,
+          })
         })
-      })
+      } else {
+        // 'audiobook' is only ever activated per-book above; if it is the
+        // persisted setting (e.g. picked in a previous session), this book has
+        // no audiobook to play, so fall back to the browser provider.
+        const providerId = this.settings.ttsProviderId === 'audiobook' ? 'browser' : this.settings.ttsProviderId
+        registry.setActiveProvider(providerId, {
+          voiceId: this.settings.ttsVoiceId,
+        }).then((provider) => {
+          provider.getVoices().then((voices) => {
+            const v = voices.find(x => x.id === this.settings.ttsVoiceId)
+            if (v) this.ttsController?.setVoice(v)
+          })
+        })
+      }
     },
     async syncTtsDocument() {
       this.initTTSController()

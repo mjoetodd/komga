@@ -1,6 +1,7 @@
 import { TTSProvider } from './tts-provider'
 import { BrowserTTSProvider } from './browser-tts-provider'
 import { ServerTTSProvider } from './server-tts-provider'
+import { AudiobookTTSProvider } from './audiobook-tts-provider'
 
 export class TTSProviderRegistry {
   private static instance: TTSProviderRegistry | null = null
@@ -10,6 +11,7 @@ export class TTSProviderRegistry {
   private constructor() {
     this.registerProvider(new BrowserTTSProvider())
     this.registerProvider(new ServerTTSProvider())
+    this.registerProvider(new AudiobookTTSProvider())
   }
 
   static getInstance(): TTSProviderRegistry {

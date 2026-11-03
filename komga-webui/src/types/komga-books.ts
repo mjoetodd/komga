@@ -18,6 +18,7 @@ export interface BookDto {
   readProgress?: ReadProgressDto,
   deleted: boolean,
   oneshot: boolean,
+  audiobook: boolean,
 
   // custom fields
   context: Context
