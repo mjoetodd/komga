@@ -78,6 +78,13 @@ declare module 'vue-router/auto-routes' {
       '/book/:id',
       { id: ParamValue<true> },
       { id: ParamValue<false> },
+      | '/book/[id]/listen'
+    >,
+    '/book/[id]/listen': RouteRecordInfo<
+      '/book/[id]/listen',
+      '/book/:id/listen',
+      { id: ParamValue<true> },
+      { id: ParamValue<false> },
       | never
     >,
     '/claim': RouteRecordInfo<
@@ -352,10 +359,19 @@ declare module 'vue-router/auto-routes' {
     'src/pages/book/[id].vue': {
       routes:
         | '/book/[id]'
+        | '/book/[id]/listen'
+      views:
+        | 'default'
+      pathParamNames:
+        | 'id'
+    }
+    'src/pages/book/[id]/listen.vue': {
+      routes:
+        | '/book/[id]/listen'
       views:
         | never
       pathParamNames:
-        | 'id'
+        | never
     }
     'src/pages/claim.vue': {
       routes:

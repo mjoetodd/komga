@@ -17,6 +17,7 @@ declare module 'vue' {
     ApikeyGenerateDialog: typeof import('./components/apikey/GenerateDialog.vue')['default']
     ApikeyTable: typeof import('./components/apikey/Table.vue')['default']
     AutocompleteMandatory: typeof import('./components/AutocompleteMandatory.vue')['default']
+    BookAudiobookPlayer: typeof import('./components/book/AudiobookPlayer.vue')['default']
     BookCard: typeof import('./components/book/card/BookCard.vue')['default']
     BookCompare: typeof import('./components/book/compare/Compare.vue')['default']
     BookCompareGeneral: typeof import('./components/book/compare/General.vue')['default']

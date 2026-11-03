@@ -8,6 +8,13 @@
       @click="readAction.onClick?.()"
     />
 
+    <v-btn
+      v-if="book.audiobook"
+      prepend-icon="i-mdi:headphones"
+      text="Listen"
+      @click="goToListen"
+    />
+
     <v-icon-btn
       v-for="action in prominentActions"
       :key="action.action"
@@ -43,7 +50,12 @@ const props = defineProps<{
 }>()
 
 const id = useId()
+const router = useRouter()
 const { actions } = useBookActions(() => props.book)
+
+function goToListen() {
+  void router.push({ name: '/book/[id]/listen', params: { id: props.book.id } })
+}
 
 const bottomSheet = ref(false)
 
