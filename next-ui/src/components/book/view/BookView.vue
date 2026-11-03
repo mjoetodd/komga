@@ -278,6 +278,23 @@ tio
         </v-col>
       </v-row>
 
+      <v-row
+        v-if="book.audiobook"
+        density="compact"
+      >
+        <v-col>
+          <v-chip
+            color="primary"
+            size="small"
+            rounded
+            label
+            prepend-icon="i-mdi:headphones"
+            text="Audiobook available"
+            title="A prebuilt audiobook is available for this book — open it in the reader and press Listen"
+          />
+        </v-col>
+      </v-row>
+
       <v-row v-if="display.xs.value && containedIn.length > 0">
         <v-col>
           <ContainerChip

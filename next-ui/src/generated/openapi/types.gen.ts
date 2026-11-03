@@ -63,6 +63,7 @@ export type AuthorUpdateDto = {
 };
 
 export type BookDto = {
+    audiobook: boolean;
     created: Date;
     deleted: boolean;
     fileHash: string;

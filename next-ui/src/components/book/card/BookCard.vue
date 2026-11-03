@@ -4,7 +4,7 @@
     :title="titleAndLines.title"
     :lines="titleAndLines.lines"
     :poster-url="bookPosterUrl(book.id, cacheStore.getVersion(book.id))"
-    :top-right-icon="isRead ? 'i-mdi:check' : undefined"
+    :top-right-icon="topRightIcon"
     :progress-percent="progressPercent"
     :fab-icon="canRead ? 'i-mdi:play' : undefined"
     :quick-action-icon="quickActionIcon"
@@ -65,6 +65,10 @@ const propsLeft = computed(() => {
   return rest
 })
 const { isRead, progressPercent } = useBookReadProgress(book)
+// a prebuilt audiobook gets the top-right slot unless the read check needs it
+const topRightIcon = computed(() =>
+  isRead.value ? 'i-mdi:check' : book.value.audiobook ? 'i-mdi:headphones' : undefined,
+)
 
 const excludedKeys = ['series', 'metadata.numberSort', 'metadata.title', 'pagesCount'] as const
 type SortKeysSupported = Exclude<SortKeysBook, (typeof excludedKeys)[number]>
