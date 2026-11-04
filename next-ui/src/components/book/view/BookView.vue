@@ -304,6 +304,15 @@ tio
         </v-col>
       </v-row>
 
+      <v-row density="compact">
+        <v-col>
+          <BookViewBookCharacterActions
+            :book-id="book.id"
+            :series-id="book.seriesId"
+          />
+        </v-col>
+      </v-row>
+
       <v-row v-if="display.xs.value && containedIn.length > 0">
         <v-col>
           <ContainerChip

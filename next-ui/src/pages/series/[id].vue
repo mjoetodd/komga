@@ -186,7 +186,7 @@
     <template v-else-if="series">
       <SeriesView :series="series" />
 
-      <SeriesCharacters :series-id="series.id" />
+      <SeriesViewSeriesCharacters :series-id="series.id" />
 
       <v-divider class="mb-1 mx-2" />
 

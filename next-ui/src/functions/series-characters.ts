@@ -43,6 +43,18 @@ export interface MergeSuggestion {
   reason?: string | null
 }
 
+export interface CharacterJob {
+  id: string
+  type: string
+  state: string
+  phase?: string | null
+  bookIndex?: number | null
+  bookCount?: number | null
+  detail?: string | null
+  error?: string | null
+  createdAt?: string | null
+}
+
 export interface SeriesCharacters {
   available: boolean
   seriesName?: string | null
