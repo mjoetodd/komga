@@ -78,13 +78,6 @@ declare module 'vue-router/auto-routes' {
       '/book/:id',
       { id: ParamValue<true> },
       { id: ParamValue<false> },
-      | '/book/[id]/listen'
-    >,
-    '/book/[id]/listen': RouteRecordInfo<
-      '/book/[id]/listen',
-      '/book/:id/listen',
-      { id: ParamValue<true> },
-      { id: ParamValue<false> },
       | never
     >,
     '/claim': RouteRecordInfo<
@@ -188,6 +181,13 @@ declare module 'vue-router/auto-routes' {
       '/libraries/create',
       Record<never, never>,
       Record<never, never>,
+      | never
+    >,
+    '/listen/[bookId]': RouteRecordInfo<
+      '/listen/[bookId]',
+      '/listen/:bookId',
+      { bookId: ParamValue<true> },
+      { bookId: ParamValue<false> },
       | never
     >,
     '/login': RouteRecordInfo<
@@ -359,19 +359,10 @@ declare module 'vue-router/auto-routes' {
     'src/pages/book/[id].vue': {
       routes:
         | '/book/[id]'
-        | '/book/[id]/listen'
       views:
-        | 'default'
+        | never
       pathParamNames:
         | 'id'
-    }
-    'src/pages/book/[id]/listen.vue': {
-      routes:
-        | '/book/[id]/listen'
-      views:
-        | never
-      pathParamNames:
-        | never
     }
     'src/pages/claim.vue': {
       routes:
@@ -491,6 +482,14 @@ declare module 'vue-router/auto-routes' {
         | never
       pathParamNames:
         | never
+    }
+    'src/pages/listen/[bookId].vue': {
+      routes:
+        | '/listen/[bookId]'
+      views:
+        | never
+      pathParamNames:
+        | 'bookId'
     }
     'src/pages/login.vue': {
       routes:

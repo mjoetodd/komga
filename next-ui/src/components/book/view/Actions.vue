@@ -54,7 +54,7 @@ const router = useRouter()
 const { actions } = useBookActions(() => props.book)
 
 function goToListen() {
-  void router.push({ name: '/book/[id]/listen', params: { id: props.book.id } })
+  void router.push({ name: '/listen/[bookId]', params: { bookId: props.book.id } })
 }
 
 const bottomSheet = ref(false)

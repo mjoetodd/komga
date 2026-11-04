@@ -62,9 +62,9 @@ import { isApiErrorWithCause } from '@/api/komga-client'
 import AudiobookPlayer from '@/components/book/AudiobookPlayer.vue'
 import EmptyStateNetworkError from '@/components/EmptyStateNetworkError.vue'
 
-const route = useRoute('/book/[id]/listen')
+const route = useRoute('/listen/[bookId]')
 const router = useRouter()
-const bookId = computed(() => route.params.id)
+const bookId = computed(() => route.params.bookId)
 
 const {
   data: book,
