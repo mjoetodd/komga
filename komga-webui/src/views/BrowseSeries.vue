@@ -302,7 +302,7 @@
           <div v-else class="py-1">No character analysis yet for this series.</div>
 
           <div class="py-1">
-            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">Analyze characters</v-btn>
+            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">{{ charAnalyzeLabel }}</v-btn>
             <v-btn small class="me-2" :disabled="charBusy || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">Generate all audiobooks</v-btn>
             <v-btn small text @click="loadCharacters(seriesId)">Refresh</v-btn>
             <span v-if="charMessage" class="ms-2">{{ charMessage }}</span>
@@ -735,6 +735,13 @@ export default Vue.extend({
   computed: {
     charAnyMarked(): boolean {
       return !!this.charactersInfo && (this.charactersInfo.books || []).some((b: any) => b.reprocessCharacters)
+    },
+    charAnalyzeLabel(): string {
+      if (!this.charactersInfo) return 'Analyze characters'
+      const marked = (this.charactersInfo.books || []).filter((b: any) => b.reprocessCharacters).length
+      if (marked > 0) return `Analyze (${marked} marked + new)`
+      if (this.charactersInfo.castReadyCount === 0) return 'Analyze characters'
+      return 'Analyze new books'
     },
     charMergeCandidates(): any[] {
       if (!this.charactersInfo || !this.charDetail) return []

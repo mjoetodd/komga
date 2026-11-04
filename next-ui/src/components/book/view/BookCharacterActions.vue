@@ -51,6 +51,14 @@
       class="mb-2"
       :text="error"
     />
+    <v-alert
+      v-if="notice"
+      type="success"
+      variant="tonal"
+      density="compact"
+      class="mb-2"
+      :text="notice"
+    />
 
     <div class="d-flex flex-wrap ga-2">
       <v-btn
@@ -125,6 +133,7 @@ const state = computed(() =>
 )
 const busy = ref<string | null>(null)
 const error = ref<string | null>(null)
+const notice = ref<string | null>(null)
 
 async function refresh() {
   await queryCache.invalidateQueries({
@@ -135,8 +144,10 @@ async function refresh() {
 async function analyze() {
   busy.value = 'analyze'
   error.value = null
+  notice.value = null
   try {
     await postAnalyzeCharacters(props.seriesId, [props.bookId])
+    notice.value = 'Analysis queued — progress and results show on the series page.'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue analysis'
   } finally {
@@ -147,8 +158,10 @@ async function analyze() {
 async function generate() {
   busy.value = 'generate'
   error.value = null
+  notice.value = null
   try {
     await postGenerateAudiobooks(props.seriesId, [props.bookId])
+    notice.value = 'Audiobook generation queued — progress shows on the series page.'
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue audiobook generation'
   } finally {

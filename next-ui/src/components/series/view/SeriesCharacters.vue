@@ -72,8 +72,10 @@
       type="error"
       variant="tonal"
       density="compact"
+      closable
       class="mb-2"
       :text="lastError"
+      @click:close="dismissError"
     />
 
     <div class="d-flex flex-wrap ga-2 mb-2">
@@ -356,6 +358,14 @@ async function refresh() {
   await queryCache.invalidateQueries({ key: QUERY_KEYS_SERIES_CHARACTERS.bySeriesId(props.seriesId) })
 }
 
+const dismissedErrorJobId = ref<string | null>(null)
+
+function dismissError() {
+  const failed = jobs.value.find((j) => j.state === 'error')
+  if (failed) dismissedErrorJobId.value = failed.id
+  lastError.value = null
+}
+
 async function pollJobs() {
   try {
     const before = jobs.value
@@ -366,6 +376,17 @@ async function pollJobs() {
       const failed = jobs.value.find((j) => j.state === 'error')
       if (failed?.error) lastError.value = failed.error
       await refresh()
+    } else if (!nowActive && !lastError.value) {
+      // surface a recent failure even if the job finished before this page opened
+      const failed = jobs.value.find(
+        (j) =>
+          j.state === 'error' &&
+          j.error &&
+          j.id !== dismissedErrorJobId.value &&
+          j.createdAt != null &&
+          Date.now() - new Date(j.createdAt).getTime() < 30 * 60 * 1000,
+      )
+      if (failed?.error) lastError.value = failed.error
     }
   } catch {
     // jobs endpoint unavailable (worker not connected yet) — stay silent
