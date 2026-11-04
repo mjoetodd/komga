@@ -379,7 +379,20 @@
           <v-card-title>{{ bookCharDetail.name }}</v-card-title>
           <v-card-text>
             <div>Voiced by <strong>{{ bookCharDetail.voice }}</strong><span v-if="bookCharDetail.firstBook != null"> · first speaks in book {{ bookCharDetail.firstBook }}</span> · {{ bookCharDetail.totalLines }} lines across {{ bookCharDetail.books.length }} books</div>
-            <p v-if="bookCharDetail.description" class="mt-2">{{ bookCharDetail.description }}</p>
+            <p v-if="bookCharDetail.memorySummary" class="mt-2">{{ bookCharDetail.memorySummary }}</p>
+            <p v-else-if="bookCharDetail.description" class="mt-2">{{ bookCharDetail.description }}</p>
+            <div v-if="bookCharDetail.facts && bookCharDetail.facts.length > 0" class="mt-2">
+              <div>What we've learned</div>
+              <div v-for="(fact, i) in bookCharDetail.facts" :key="i">• {{ fact.text }}<span v-if="fact.book != null" class="text-medium-emphasis"> (book {{ fact.book }})</span></div>
+            </div>
+            <div v-if="bookCharDetail.relationships && bookCharDetail.relationships.length > 0" class="mt-2">
+              <div>Relationships</div>
+              <v-chip v-for="(rel, i) in bookCharDetail.relationships" :key="i" label small class="me-1">{{ rel.nature ? rel.name + ' — ' + rel.nature : rel.name }}</v-chip>
+            </div>
+            <div v-if="bookCharDetail.aliasCandidates && bookCharDetail.aliasCandidates.length > 0" class="mt-2">
+              <div>Possible aliases <span class="text-medium-emphasis">(click to select as merge parent)</span></div>
+              <v-chip v-for="cand in bookCharDetail.aliasCandidates" :key="cand.id" label small outlined color="warning" class="me-1" :title="cand.reason" @click="bookCharMergeParent = cand.id">{{ cand.name }}</v-chip>
+            </div>
             <div v-if="bookCharDetail.aliases && bookCharDetail.aliases.length > 0" class="mt-2">
               Also known as:
               <v-chip v-for="a in bookCharDetail.aliases" :key="a" label small class="me-1">{{ a }}</v-chip>

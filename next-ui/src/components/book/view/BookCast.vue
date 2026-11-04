@@ -60,6 +60,7 @@
         :all-characters="seriesInfo.characters"
         @close="wantedCharacterId = null"
         @merge="onMerge"
+        @open="(id: string) => { wantedCharacterId = id }"
       />
     </v-dialog>
   </div>

@@ -7,6 +7,23 @@ export interface SeriesCharacterBookStat {
   evidence?: string[]
 }
 
+export interface CharacterFact {
+  text: string
+  book?: number | null
+}
+
+export interface CharacterRelationship {
+  name: string
+  nature: string
+  book?: number | null
+}
+
+export interface AliasCandidate {
+  id: string
+  name: string
+  reason: string
+}
+
 export interface SeriesCharacter {
   id: string
   name: string
@@ -22,6 +39,10 @@ export interface SeriesCharacter {
   firstBook?: number | null
   books: SeriesCharacterBookStat[]
   sampleLines: string[]
+  memorySummary?: string | null
+  facts?: CharacterFact[]
+  relationships?: CharacterRelationship[]
+  aliasCandidates?: AliasCandidate[]
 }
 
 export interface CharacterBookState {

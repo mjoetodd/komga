@@ -337,7 +337,20 @@
           <v-card-title>{{ charDetail.name }}</v-card-title>
           <v-card-text>
             <div>Voiced by <strong>{{ charDetail.voice }}</strong><span v-if="charDetail.firstBook != null"> · first speaks in book {{ charDetail.firstBook }}</span> · {{ charDetail.totalLines }} lines across {{ charDetail.books.length }} books</div>
-            <p v-if="charDetail.description" class="mt-2">{{ charDetail.description }}</p>
+            <p v-if="charDetail.memorySummary" class="mt-2">{{ charDetail.memorySummary }}</p>
+            <p v-else-if="charDetail.description" class="mt-2">{{ charDetail.description }}</p>
+            <div v-if="charDetail.facts && charDetail.facts.length > 0" class="mt-2">
+              <div>What we've learned</div>
+              <div v-for="(fact, i) in charDetail.facts" :key="i">• {{ fact.text }}<span v-if="fact.book != null" class="text-medium-emphasis"> (book {{ fact.book }})</span></div>
+            </div>
+            <div v-if="charDetail.relationships && charDetail.relationships.length > 0" class="mt-2">
+              <div>Relationships</div>
+              <v-chip v-for="(rel, i) in charDetail.relationships" :key="i" label small class="me-1">{{ rel.nature ? rel.name + ' — ' + rel.nature : rel.name }}</v-chip>
+            </div>
+            <div v-if="charDetail.aliasCandidates && charDetail.aliasCandidates.length > 0" class="mt-2">
+              <div>Possible aliases <span class="text-medium-emphasis">(click to select as merge parent)</span></div>
+              <v-chip v-for="cand in charDetail.aliasCandidates" :key="cand.id" label small outlined color="warning" class="me-1" :title="cand.reason" @click="charMergeParent = cand.id">{{ cand.name }}</v-chip>
+            </div>
             <div v-if="charDetail.aliases && charDetail.aliases.length > 0" class="mt-2">
               Also known as:
               <v-chip v-for="a in charDetail.aliases" :key="a" label small class="me-1">{{ a }}</v-chip>

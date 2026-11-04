@@ -198,6 +198,7 @@
           :all-characters="info.characters"
           @close="selected = null"
           @merge="onMerge"
+          @open="openRelated"
         />
       </v-dialog>
     </template>
@@ -410,6 +411,11 @@ async function submitGenerate(bookIds?: string[]) {
   } finally {
     submitting.value = null
   }
+}
+
+function openRelated(characterId: string) {
+  const target = info.value?.characters.find((c) => c.id === characterId)
+  if (target) selected.value = target
 }
 
 async function onMerge(parentId: string, childId: string) {

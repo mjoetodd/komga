@@ -31,9 +31,70 @@
         </span>
       </div>
 
-      <p v-if="character.description" class="text-body-medium my-3">
+      <p v-if="character.memorySummary" class="text-body-medium my-3">
+        {{ character.memorySummary }}
+      </p>
+      <p
+        v-else-if="character.description"
+        class="text-body-medium my-3"
+      >
         {{ character.description }}
       </p>
+
+      <div v-if="character.facts && character.facts.length > 0" class="mb-3">
+        <div class="text-label-medium text-medium-emphasis mb-1">What we've learned</div>
+        <div
+          v-for="(fact, i) in character.facts"
+          :key="i"
+          class="text-body-medium"
+        >
+          • {{ fact.text }}
+          <span
+            v-if="fact.book != null"
+            class="text-medium-emphasis"
+          >
+            (book {{ fact.book }})
+          </span>
+        </div>
+      </div>
+
+      <div v-if="character.relationships && character.relationships.length > 0" class="mb-3">
+        <div class="text-label-medium text-medium-emphasis mb-1">Relationships</div>
+        <div class="d-flex flex-wrap ga-1">
+          <v-chip
+            v-for="(rel, i) in character.relationships"
+            :key="i"
+            size="small"
+            rounded
+            label
+            :clickable="!!findCharacter(rel.name)"
+            :title="rel.book != null ? `noted in book ${rel.book}` : undefined"
+            :text="rel.nature ? `${rel.name} — ${rel.nature}` : rel.name"
+            @click="relClicked(rel.name)"
+          />
+        </div>
+      </div>
+
+      <div v-if="character.aliasCandidates && character.aliasCandidates.length > 0" class="mb-3">
+        <div class="text-label-medium text-medium-emphasis mb-1">Possible aliases</div>
+        <div class="d-flex flex-wrap ga-1">
+          <v-chip
+            v-for="cand in character.aliasCandidates"
+            :key="cand.id"
+            size="small"
+            rounded
+            label
+            variant="outlined"
+            color="warning"
+            :title="cand.reason"
+            :text="cand.name"
+            @click="mergeParentId = cand.id"
+          />
+        </div>
+        <div class="text-body-small text-medium-emphasis mt-1">
+          Click a candidate to select it as the merge parent below.
+        </div>
+      </div>
 
       <div v-if="character.aliases.length > 0" class="mb-3">
         <div class="text-label-medium text-medium-emphasis mb-1">Also known as</div>
@@ -163,10 +224,20 @@ const props = defineProps<{
   allCharacters: SeriesCharacter[]
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   close: []
   merge: [parentId: string, childId: string]
+  open: [characterId: string]
 }>()
+
+function findCharacter(name: string) {
+  return props.allCharacters.find((c) => c.name.toLowerCase() === name.toLowerCase())
+}
+
+function relClicked(name: string) {
+  const target = findCharacter(name)
+  if (target) emit('open', target.id)
+}
 
 const mergeParentId = ref<string | null>(null)
 const mergeCandidates = computed(() =>

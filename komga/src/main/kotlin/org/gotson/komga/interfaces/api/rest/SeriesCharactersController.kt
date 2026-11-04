@@ -30,6 +30,23 @@ data class CharacterBookStatDto(
   val evidence: List<String> = emptyList(),
 )
 
+data class CharacterFactDto(
+  val text: String,
+  val book: Int? = null,
+)
+
+data class CharacterRelationshipDto(
+  val name: String,
+  val nature: String = "",
+  val book: Int? = null,
+)
+
+data class AliasCandidateDto(
+  val id: String,
+  val name: String,
+  val reason: String = "",
+)
+
 data class SeriesCharacterDto(
   val id: String,
   val name: String,
@@ -45,6 +62,10 @@ data class SeriesCharacterDto(
   val firstBook: Int? = null,
   val books: List<CharacterBookStatDto> = emptyList(),
   val sampleLines: List<String> = emptyList(),
+  val memorySummary: String? = null,
+  val facts: List<CharacterFactDto> = emptyList(),
+  val relationships: List<CharacterRelationshipDto> = emptyList(),
+  val aliasCandidates: List<AliasCandidateDto> = emptyList(),
 )
 
 data class CharacterBookStateDto(
@@ -487,6 +508,27 @@ class SeriesCharactersController(
         )
       },
       sampleLines = node.path("sampleLines").map { it.asText() },
+      memorySummary = node.path("memorySummary").takeIf { it.isTextual }?.asText(),
+      facts = node.path("facts").map { f ->
+        CharacterFactDto(
+          text = f.path("text").asText(),
+          book = f.path("book").takeIf { it.isNumber }?.asInt(),
+        )
+      },
+      relationships = node.path("relationships").map { r ->
+        CharacterRelationshipDto(
+          name = r.path("name").asText(),
+          nature = r.path("nature").takeIf { it.isTextual }?.asText() ?: "",
+          book = r.path("book").takeIf { it.isNumber }?.asInt(),
+        )
+      },
+      aliasCandidates = node.path("aliasCandidates").map { a ->
+        AliasCandidateDto(
+          id = a.path("id").asText(),
+          name = a.path("name").asText(),
+          reason = a.path("reason").takeIf { it.isTextual }?.asText() ?: "",
+        )
+      },
     )
 
   companion object {
