@@ -395,11 +395,13 @@ class SeriesCharactersController(
     val series = seriesRepository.findByIdOrNull(seriesId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     val slug = slugFor(seriesId, series)
     val recent = characterJobService.recentJobsForSlug(slug)
-    // When a generate job has finished recently, fire a one-off library scan
-    // so the new audiobook sidecars get indexed (cover decorator, book DTO
-    // flags) instead of waiting for the next scheduled/manual scan.
+    // When a character job has finished recently, fire a one-off library
+    // scan so its sidecars get indexed (audiobook cover decorator, cast
+    // section, book DTO flags) instead of waiting for the next
+    // scheduled/manual scan. Analyze and merge jobs write cast sidecars;
+    // generate jobs write audiobook sidecars.
     recent.forEach { job ->
-      if (job.path("type").asText() == "generate_audiobooks") {
+      if (job.path("type").asText() in setOf("generate_audiobooks", "analyze_series", "merge_characters")) {
         val status = characterJobService.readStatus(job.path("id").asText())
         val finishedAt = status?.path("finishedAt")?.takeIf { it.isTextual }?.asText()
         val fresh = finishedAt != null &&
