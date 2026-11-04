@@ -186,6 +186,8 @@
     <template v-else-if="series">
       <SeriesView :series="series" />
 
+      <SeriesCharacters :series-id="series.id" />
+
       <v-divider class="mb-1 mx-2" />
 
       <div class="sticky-bar d-flex align-center pa-2">
