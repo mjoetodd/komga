@@ -356,6 +356,23 @@
         </v-col>
       </v-row>
 
+      <v-row v-if="bookCharState" class="text-caption">
+        <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">Characters &amp; audiobook</v-col>
+        <v-col cols="8" sm="9" md="10" xl="11" class="py-1">
+          <v-chip label small outlined :color="bookCharState.castState === 'READY' ? 'success' : 'warning'">{{ bookCharState.castState === 'READY' ? 'Characters ready' : 'Character analysis needed' }}</v-chip>
+          <v-chip v-if="bookCharState.hasAudiobook" label small outlined color="success">Audiobook ready</v-chip>
+          <v-chip v-if="bookCharState.reprocessCharacters" label small outlined color="info">Marked: re-analyze</v-chip>
+          <v-chip v-if="bookCharState.reprocessAudiobook" label small outlined color="info">Marked: re-render</v-chip>
+          <div class="py-1 mt-1">
+            <v-btn small class="me-2" :disabled="bookCharBusy" @click="bookCharPost('analyze')">{{ bookCharState.castState === 'READY' ? 'Re-analyze book' : 'Analyze book' }}</v-btn>
+            <v-btn small class="me-2" :disabled="bookCharBusy || bookCharState.castState !== 'READY'" @click="bookCharPost('generate-audiobooks')">{{ bookCharState.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook' }}</v-btn>
+            <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessCharacters', !bookCharState.reprocessCharacters)">{{ bookCharState.reprocessCharacters ? 'Unmark re-analyze' : 'Mark for re-analysis' }}</v-btn>
+            <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessAudiobook', !bookCharState.reprocessAudiobook)">{{ bookCharState.reprocessAudiobook ? 'Unmark re-render' : 'Mark for re-render' }}</v-btn>
+            <span v-if="bookCharMessage" class="ms-2">{{ bookCharMessage }}</span>
+          </div>
+        </v-col>
+      </v-row>
+
       <v-row v-if="book.metadata.tags.length > 0" class="align-center text-caption">
         <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">{{ $i18n.t('common.tags') }}</v-col>
         <v-col cols="8" sm="9" md="10" xl="11" class="py-1 text-capitalize">
@@ -533,6 +550,9 @@ export default Vue.extend({
       readLists: [] as ReadListDto[],
       readMore: false,
       castInfo: null as any,
+      bookCharState: null as any,
+      bookCharBusy: false,
+      bookCharMessage: '',
     }
   },
   async created() {
@@ -670,6 +690,59 @@ export default Vue.extend({
     readProgressChanged(event: ReadProgressSseDto) {
       if (event.bookId === this.bookId) this.loadBook(this.bookId)
     },
+    async loadBookCharState() {
+      this.bookCharState = null
+      try {
+        if (!this.book.seriesId || !this.book.url || !this.book.url.toLowerCase().endsWith('.epub')) return
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters`, {
+          credentials: 'include',
+          headers: {Accept: 'application/json'},
+        })
+        if (!response.ok) return
+        const info = await response.json()
+        this.bookCharState = (info.books || []).find((b: any) => b.bookId === this.bookId) || null
+      } catch (e) {
+        this.bookCharState = null
+      }
+    },
+    async bookCharPost(path: string) {
+      this.bookCharBusy = true
+      this.bookCharMessage = ''
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/${path}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
+          body: JSON.stringify({bookIds: [this.bookId]}),
+        })
+        if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`)
+        this.bookCharMessage = 'Queued — watch progress on the series page.'
+      } catch (e: any) {
+        this.bookCharMessage = e.message || 'Request failed'
+      } finally {
+        this.bookCharBusy = false
+      }
+    },
+    async bookCharMark(field: string, value: boolean) {
+      this.bookCharBusy = true
+      this.bookCharMessage = ''
+      try {
+        const body: any = {bookIds: [this.bookId]}
+        body[field] = value
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/marks`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        })
+        if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`)
+        await this.loadBookCharState()
+      } catch (e: any) {
+        this.bookCharMessage = e.message || 'Request failed'
+      } finally {
+        this.bookCharBusy = false
+      }
+    },
     async loadCast(bookId: string) {
       try {
         const response = await fetch(`${urls.originNoSlash}/api/v1/books/${bookId}/cast`, {
@@ -684,6 +757,7 @@ export default Vue.extend({
     async loadBook(bookId: string) {
       this.castInfo = null
       this.book = await this.$komgaBooks.getBook(bookId)
+      this.loadBookCharState()
       if (this.book.cast) this.loadCast(bookId)
       // for the cases where we can't change the origin target route because we don't have the full BookDto
       if (this.book.oneshot) await this.$router.replace({

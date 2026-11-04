@@ -289,6 +289,91 @@
         </v-row>
       </template>
 
+      <!--  Characters (audiobook pipeline)    -->
+      <v-row v-if="charactersInfo" class="text-caption">
+        <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">Characters</v-col>
+        <v-col cols="8" sm="9" md="10" xl="11" class="py-1">
+          <div v-if="charactersInfo.available" class="py-1">
+            Character analysis: {{ charactersInfo.castReadyCount }} of {{ charactersInfo.totalBooks }} books
+            <span v-if="charactersInfo.canGenerateAllAudiobooks"> — series audiobooks unlocked</span>
+            <span v-else-if="charactersInfo.needsAnalysisCount > 0"> — {{ charactersInfo.needsAnalysisCount }} book(s) need analysis before series audiobooks unlock</span>
+            <v-progress-linear :value="charactersInfo.totalBooks ? (charactersInfo.castReadyCount / charactersInfo.totalBooks) * 100 : 0" color="primary" rounded class="my-1"></v-progress-linear>
+          </div>
+          <div v-else class="py-1">No character analysis yet for this series.</div>
+
+          <div class="py-1">
+            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charactersInfo.books.some((b: any) => b.reprocessCharacters))" @click="charAnalyze">Analyze characters</v-btn>
+            <v-btn small class="me-2" :disabled="charBusy || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">Generate all audiobooks</v-btn>
+            <v-btn small text @click="loadCharacters(seriesId)">Refresh</v-btn>
+            <span v-if="charMessage" class="ms-2">{{ charMessage }}</span>
+          </div>
+
+          <div v-for="(s, i) in charactersInfo.suggestions" :key="'sug-' + i" class="py-1">
+            <v-alert type="warning" outlined dense class="mb-1">
+              <strong>{{ s.aName }}</strong> and <strong>{{ s.bName }}</strong> may be the same person
+              <span v-if="s.confidence != null">(confidence {{ Math.round(s.confidence * 100) }}%)</span>
+              <div v-if="s.reason">{{ s.reason }}</div>
+              <v-btn x-small class="me-1 mt-1" :disabled="charBusy || !s.aId || !s.bId" @click="charMergePair(s.aId, s.bId)">Merge {{ s.bName }} into {{ s.aName }}</v-btn>
+              <v-btn x-small class="me-1 mt-1" :disabled="charBusy || !s.aId || !s.bId" @click="charMergePair(s.bId, s.aId)">Merge {{ s.aName }} into {{ s.bName }}</v-btn>
+              <v-btn x-small text class="mt-1" :disabled="charBusy" @click="charDismiss(s.aName, s.bName)">Not the same person</v-btn>
+            </v-alert>
+          </div>
+
+          <template v-if="charactersInfo.available">
+            <div v-if="charactersInfo.narrator" class="py-1">
+              Narrator — voiced by {{ charactersInfo.narrator.voice }}
+              <v-chip label x-small outlined :color="charactersInfo.narrator.voiceType === 'custom' ? 'primary' : undefined">{{ charactersInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
+            </div>
+            <div v-for="member in charactersInfo.characters" :key="member.id" class="py-1">
+              <a href="#" @click.prevent="openCharacter(member)">{{ member.name }}</a>
+              — voiced by {{ member.voice }} · {{ member.totalLines }} lines
+              <v-chip label x-small outlined :color="member.voiceType === 'custom' ? 'primary' : undefined">{{ member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
+              <v-chip v-if="member.status === 'merged'" label x-small outlined color="warning">merged</v-chip>
+              <div v-if="member.description" class="text-medium-emphasis">{{ member.description }}</div>
+            </div>
+          </template>
+
+          <div class="py-1 mt-2">
+            <div class="text-uppercase">Book states</div>
+            <div v-for="b in charactersInfo.books" :key="b.file" class="py-0">
+              <v-checkbox v-model="charSelectedBooks" :value="b.bookId" :disabled="!b.bookId" dense hide-details class="d-inline-flex ma-0 pa-0"></v-checkbox>
+              Book {{ b.number }} — {{ b.file }}:
+              {{ b.castState === 'READY' ? 'Characters ready' : 'Needs analysis' }}<span v-if="b.hasAudiobook"> · Audiobook ✓</span><span v-if="b.reprocessCharacters"> · Marked: characters</span><span v-if="b.reprocessAudiobook"> · Marked: audiobook</span>
+            </div>
+            <v-btn x-small class="me-1 mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('characters', true)">Mark character reprocessing ({{ charSelectedBooks.length }})</v-btn>
+            <v-btn x-small class="me-1 mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('audiobook', true)">Mark audiobook reprocessing ({{ charSelectedBooks.length }})</v-btn>
+            <v-btn x-small text class="mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('characters', false); charMark('audiobook', false)">Clear marks</v-btn>
+          </div>
+        </v-col>
+      </v-row>
+
+      <v-dialog v-model="charDialog" max-width="640">
+        <v-card v-if="charDetail">
+          <v-card-title>{{ charDetail.name }}</v-card-title>
+          <v-card-text>
+            <div>Voiced by <strong>{{ charDetail.voice }}</strong><span v-if="charDetail.firstBook != null"> · first speaks in book {{ charDetail.firstBook }}</span> · {{ charDetail.totalLines }} lines across {{ charDetail.books.length }} books</div>
+            <p v-if="charDetail.description" class="mt-2">{{ charDetail.description }}</p>
+            <div v-if="charDetail.aliases && charDetail.aliases.length > 0" class="mt-2">
+              Also known as:
+              <v-chip v-for="a in charDetail.aliases" :key="a" label small class="me-1">{{ a }}</v-chip>
+            </div>
+            <div v-if="charDetail.sampleLines && charDetail.sampleLines.length > 0" class="mt-2">
+              <div>Sample lines</div>
+              <div v-for="(line, i) in charDetail.sampleLines" :key="i" class="font-italic">“{{ line }}”</div>
+            </div>
+            <div v-if="charDetail.status !== 'merged'" class="mt-4">
+              <div>Same person as another character? Pick the parent — this character becomes its alias and affected audiobooks are marked for re-rendering.</div>
+              <v-select v-model="charMergeParent" :items="charactersInfo.characters.filter((c: any) => c.id !== charDetail.id && c.status !== 'merged')" item-text="name" item-value="id" label="Parent character" clearable dense></v-select>
+            </div>
+          </v-card-text>
+          <v-card-actions>
+            <v-btn v-if="charDetail.status !== 'merged'" color="warning" text :disabled="!charMergeParent || charBusy" @click="charMerge">Merge into parent</v-btn>
+            <v-spacer></v-spacer>
+            <v-btn text @click="charDialog = false">Close</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!--  Publisher    -->
       <v-row v-if="series.metadata.publisher" class="align-center text-caption">
         <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">{{ $t('common.publisher') }}</v-col>
@@ -509,7 +594,7 @@ import ItemCard from '@/components/ItemCard.vue'
 import SeriesActionsMenu from '@/components/menus/SeriesActionsMenu.vue'
 import PageSizeSelect from '@/components/PageSizeSelect.vue'
 import {parseQuerySort} from '@/functions/query-params'
-import {seriesFileUrl, seriesThumbnailUrl} from '@/functions/urls'
+import urls, {seriesFileUrl, seriesThumbnailUrl} from '@/functions/urls'
 import {MediaProfile, ReadStatus} from '@/types/enum-books'
 import {
   BOOK_ADDED,
@@ -638,6 +723,13 @@ export default Vue.extend({
       },
       readMore: false,
       readMoreTitles: false,
+      charactersInfo: null as any,
+      charSelectedBooks: [] as string[],
+      charBusy: false,
+      charMessage: '',
+      charDialog: false,
+      charDetail: null as any,
+      charMergeParent: null as string | null,
     }
   },
   computed: {
@@ -989,11 +1081,76 @@ export default Vue.extend({
     reloadPage: throttle(function (this: any) {
       this.loadPage(this.seriesId, this.page, this.sortActive)
     }, 1000),
+    async loadCharacters(seriesId: string) {
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${seriesId}/characters`, {
+          credentials: 'include',
+          headers: {Accept: 'application/json'},
+        })
+        if (response.ok) this.charactersInfo = await response.json()
+        else this.charactersInfo = null
+      } catch (e) {
+        this.charactersInfo = null
+      }
+    },
+    async charPost(path: string, body: any) {
+      this.charBusy = true
+      this.charMessage = ''
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.seriesId}/characters/${path}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
+          body: JSON.stringify(body ?? {}),
+        })
+        if (!response.ok) {
+          const text = await response.text()
+          throw new Error(text || `Request failed (${response.status})`)
+        }
+        this.charMessage = 'Queued — the worker picks jobs up within a few seconds.'
+        await this.loadCharacters(this.seriesId)
+      } catch (e: any) {
+        this.charMessage = e.message || 'Request failed'
+      } finally {
+        this.charBusy = false
+      }
+    },
+    charAnalyze() {
+      this.charPost('analyze', {})
+    },
+    charGenerate() {
+      this.charPost('generate-audiobooks', {})
+    },
+    charMark(kind: string, value: boolean) {
+      const body: any = {bookIds: this.charSelectedBooks}
+      if (kind === 'characters') body.reprocessCharacters = value
+      else body.reprocessAudiobook = value
+      this.charPost('marks', body)
+    },
+    openCharacter(character: any) {
+      this.charDetail = character
+      this.charMergeParent = null
+      this.charDialog = true
+    },
+    charMerge() {
+      if (!this.charDetail || !this.charMergeParent) return
+      const parentId = this.charMergeParent
+      const childId = this.charDetail.id
+      this.charDialog = false
+      this.charPost('merge', {parentId, childId})
+    },
+    charMergePair(parentId: string, childId: string) {
+      this.charPost('merge', {parentId, childId})
+    },
+    charDismiss(aName: string, bName: string) {
+      this.charPost('suggestions/dismiss', {aName, bName})
+    },
     reloadSeries: throttle(function (this: any) {
       this.$komgaSeries.getOneSeries(this.seriesId)
         .then((v: SeriesDto) => this.series = v)
     }, 1000),
     async loadSeries(seriesId: string) {
+      this.loadCharacters(seriesId)
       this.$komgaSeries.getOneSeries(seriesId)
         .then(v => {
           this.series = v

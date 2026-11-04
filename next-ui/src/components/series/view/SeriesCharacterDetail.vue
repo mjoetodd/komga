@@ -88,7 +88,47 @@
       </div>
     </v-card-text>
 
+    <v-card-text v-if="character.status !== 'merged'">
+      <div class="text-label-medium text-medium-emphasis mb-1">
+        Same person as another character?
+      </div>
+      <div class="text-body-small text-medium-emphasis mb-2">
+        If this character is really someone else in the list, pick that character as the parent —
+        this one becomes its alias, its lines move over, and affected audiobooks are marked for
+        re-rendering.
+      </div>
+      <v-select
+        v-model="mergeParentId"
+        :items="mergeCandidates"
+        item-title="name"
+        item-value="id"
+        label="Parent character"
+        density="compact"
+        clearable
+      />
+      <v-alert
+        v-if="mergeParentId"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mt-2"
+      >
+        Merge {{ character.name }} into
+        {{ allCharacters.find((c) => c.id === mergeParentId)?.name }}? This affects
+        {{ character.books.length }} {{ character.books.length === 1 ? 'book' : 'books' }} where
+        {{ character.name }} speaks.
+      </v-alert>
+    </v-card-text>
+
     <v-card-actions>
+      <v-btn
+        v-if="character.status !== 'merged'"
+        color="warning"
+        variant="tonal"
+        :disabled="!mergeParentId"
+        text="Merge into parent"
+        @click="$emit('merge', mergeParentId!, character.id)"
+      />
       <v-spacer />
       <v-btn
         variant="text"
@@ -109,7 +149,13 @@ const props = defineProps<{
 
 defineEmits<{
   close: []
+  merge: [parentId: string, childId: string]
 }>()
+
+const mergeParentId = ref<string | null>(null)
+const mergeCandidates = computed(() =>
+  props.allCharacters.filter((c) => c.id !== props.character.id && c.status !== 'merged'),
+)
 
 const mergedIntoName = computed(
   () => props.allCharacters.find((c) => c.id === props.character.mergedInto)?.name,

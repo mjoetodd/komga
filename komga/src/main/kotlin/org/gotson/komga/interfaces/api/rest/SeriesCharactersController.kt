@@ -84,6 +84,16 @@ data class CharacterJobRequest(
   val bookIds: List<String>? = null,
 )
 
+data class CharacterMergeRequest(
+  val parentId: String,
+  val childId: String,
+)
+
+data class SuggestionDismissRequest(
+  val aName: String,
+  val bName: String,
+)
+
 data class CharacterMarksRequest(
   val bookIds: List<String> = emptyList(),
   val reprocessCharacters: Boolean? = null,
@@ -279,6 +289,58 @@ class SeriesCharactersController(
     val jobId = submitJob(series, states, booksById, "generate_audiobooks", jobBooks)
     targets.forEach { it.bookId?.let { id -> characterBookStateDao.setFlags(id, reprocessCharacters = null, reprocessAudiobook = false) } }
     return CharacterJobDto(id = jobId, type = "generate_audiobooks", state = "queued", bookCount = jobBooks.size)
+  }
+
+  @PostMapping(value = ["/merge"], produces = [MediaType.APPLICATION_JSON_VALUE])
+  @Operation(summary = "Merge one character into another (child becomes an alias of the parent)")
+  fun merge(
+    @AuthenticationPrincipal principal: KomgaPrincipal,
+    @PathVariable seriesId: String,
+    @RequestBody request: CharacterMergeRequest,
+  ): CharacterJobDto {
+    val (series, states, booksById) = context(principal, seriesId)
+    val dto = getSeriesCharacters(principal, seriesId)
+    val parent = dto.characters.find { it.id == request.parentId }
+      ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Parent character not found")
+    val child = dto.characters.find { it.id == request.childId }
+      ?: throw ResponseStatusException(HttpStatus.NOT_FOUND, "Child character not found")
+    if (parent.status == "merged" || child.status == "merged") {
+      throw ResponseStatusException(HttpStatus.CONFLICT, "Merged characters cannot take part in another merge")
+    }
+    if (!characterJobService.isAvailable()) {
+      throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Character worker is not connected")
+    }
+    val firstBook = states.firstOrNull()?.bookId?.let { booksById[it] }
+      ?: throw ResponseStatusException(HttpStatus.CONFLICT, "Series has no books")
+    val hostDir = firstBook.path.parent?.let { characterJobService.hostSeriesDir(it) }
+      ?: throw ResponseStatusException(HttpStatus.CONFLICT, "Series folder is not in a worker-visible library root")
+    val jobId = characterJobService.submit(
+      type = "merge_characters",
+      seriesSlug = slugFor(series.id, series),
+      seriesName = series.name,
+      seriesDirHost = hostDir,
+      books = emptyList(),
+      extra = mapOf("parentId" to request.parentId, "childId" to request.childId),
+    )
+    // Books where the child spoke now carry the parent's voice assignment for
+    // the merged character: flag their audiobooks for re-rendering.
+    child.books.forEach { stat ->
+      stat.bookId?.let { characterBookStateDao.setFlags(it, reprocessCharacters = null, reprocessAudiobook = true) }
+    }
+    return CharacterJobDto(id = jobId, type = "merge_characters", state = "queued")
+  }
+
+  @PostMapping(value = ["/suggestions/dismiss"], produces = [MediaType.APPLICATION_JSON_VALUE])
+  @Operation(summary = "Dismiss a suggested merge pair for this series")
+  fun dismissSuggestion(
+    @AuthenticationPrincipal principal: KomgaPrincipal,
+    @PathVariable seriesId: String,
+    @RequestBody request: SuggestionDismissRequest,
+  ): Map<String, Boolean> {
+    contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
+    seriesRepository.findByIdOrNull(seriesId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
+    characterBookStateDao.dismissPair(seriesId, pairKey(request.aName, request.bName))
+    return mapOf("dismissed" to true)
   }
 
   @PostMapping(value = ["/marks"], produces = [MediaType.APPLICATION_JSON_VALUE])

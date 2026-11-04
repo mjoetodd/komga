@@ -81,7 +81,7 @@
         size="small"
         variant="tonal"
         prepend-icon="i-mdi:account-search"
-        :disabled="!canAnalyze || submitting"
+        :disabled="!canAnalyze || submitting != null"
         :loading="submitting === 'analyze'"
         @click="submitAnalyze()"
       >
@@ -163,6 +163,59 @@
       </div>
     </v-expand-transition>
 
+    <div
+      v-if="info?.available && info.suggestions.length > 0"
+      class="mb-2"
+    >
+      <div class="text-label-medium text-medium-emphasis mb-1">Possible duplicates</div>
+      <v-alert
+        v-for="(s, i) in info.suggestions"
+        :key="i"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mb-2"
+      >
+        <div class="text-body-medium">
+          <strong>{{ s.aName }}</strong> and <strong>{{ s.bName }}</strong> may be the same person
+          <span v-if="s.confidence != null">
+            (confidence {{ Math.round(s.confidence * 100) }}%)
+          </span>
+        </div>
+        <div
+          v-if="s.reason"
+          class="text-body-small text-medium-emphasis"
+        >
+          {{ s.reason }}
+        </div>
+        <div class="d-flex flex-wrap ga-2 mt-2">
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            :disabled="!s.aId || !s.bId"
+            @click="mergePair(s.aId!, s.bId!)"
+          >
+            Merge {{ s.bName }} into {{ s.aName }}
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="tonal"
+            :disabled="!s.aId || !s.bId"
+            @click="mergePair(s.bId!, s.aId!)"
+          >
+            Merge {{ s.aName }} into {{ s.bName }}
+          </v-btn>
+          <v-btn
+            size="x-small"
+            variant="text"
+            @click="dismissSuggestion(s.aName, s.bName)"
+          >
+            Not the same person
+          </v-btn>
+        </div>
+      </v-alert>
+    </div>
+
     <template v-if="info?.available">
       <v-list
         density="compact"
@@ -219,6 +272,7 @@
           :character="selected"
           :all-characters="info.characters"
           @close="selected = null"
+          @merge="onMerge"
         />
       </v-dialog>
     </template>
@@ -232,7 +286,9 @@ import {
   fetchCharacterJobs,
   postAnalyzeCharacters,
   postCharacterMarks,
+  postDismissSuggestion,
   postGenerateAudiobooks,
+  postMergeCharacters,
 } from '@/api/series-characters'
 import type { CharacterJob, SeriesCharacter } from '@/functions/series-characters'
 
@@ -348,6 +404,36 @@ async function submitGenerate(bookIds?: string[]) {
     lastError.value = e instanceof Error ? e.message : 'Could not queue audiobook generation'
   } finally {
     submitting.value = null
+  }
+}
+
+async function onMerge(parentId: string, childId: string) {
+  selected.value = null
+  lastError.value = null
+  try {
+    await postMergeCharacters(props.seriesId, parentId, childId)
+    await pollJobs()
+  } catch (e) {
+    lastError.value = e instanceof Error ? e.message : 'Could not queue the merge'
+  }
+}
+
+async function mergePair(parentId: string, childId: string) {
+  lastError.value = null
+  try {
+    await postMergeCharacters(props.seriesId, parentId, childId)
+    await pollJobs()
+  } catch (e) {
+    lastError.value = e instanceof Error ? e.message : 'Could not queue the merge'
+  }
+}
+
+async function dismissSuggestion(aName: string, bName: string) {
+  try {
+    await postDismissSuggestion(props.seriesId, aName, bName)
+    await refresh()
+  } catch (e) {
+    lastError.value = e instanceof Error ? e.message : 'Could not dismiss the suggestion'
   }
 }
 

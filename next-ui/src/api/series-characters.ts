@@ -53,6 +53,35 @@ export async function postGenerateAudiobooks(
   return data as unknown as CharacterJob
 }
 
+export async function postMergeCharacters(
+  seriesId: string,
+  parentId: string,
+  childId: string,
+): Promise<CharacterJob> {
+  const data = await client.post({
+    responseStyle: 'data',
+    url: '/api/v1/series/{seriesId}/characters/merge',
+    path: { seriesId },
+    body: { parentId, childId },
+    headers: jsonHeaders,
+  })
+  return data as unknown as CharacterJob
+}
+
+export async function postDismissSuggestion(
+  seriesId: string,
+  aName: string,
+  bName: string,
+): Promise<void> {
+  await client.post({
+    responseStyle: 'data',
+    url: '/api/v1/series/{seriesId}/characters/suggestions/dismiss',
+    path: { seriesId },
+    body: { aName, bName },
+    headers: jsonHeaders,
+  })
+}
+
 export async function postCharacterMarks(
   seriesId: string,
   bookIds: string[],
