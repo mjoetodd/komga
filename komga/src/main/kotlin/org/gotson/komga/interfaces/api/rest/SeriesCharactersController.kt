@@ -132,6 +132,7 @@ data class CharacterJobDto(
   val detail: String? = null,
   val error: String? = null,
   val createdAt: String? = null,
+  val bookNumbers: List<Int> = emptyList(),
 )
 
 /**
@@ -423,6 +424,9 @@ class SeriesCharactersController(
         detail = status?.path("detail")?.takeIf { it.isTextual }?.asText(),
         error = status?.path("error")?.takeIf { it.isTextual }?.asText(),
         createdAt = job.path("createdAt").takeIf { it.isTextual }?.asText(),
+        bookNumbers = job.path("books").mapNotNull { b ->
+          b.path("number").takeIf { it.isNumber }?.asInt()
+        },
       )
     }
   }

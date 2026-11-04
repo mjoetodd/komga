@@ -25,12 +25,6 @@
           {{ info.needsAnalysisCount === 1 ? 'book needs' : 'books need' }} analysis before series
           audiobooks unlock
         </span>
-        <span
-          v-if="activeJob"
-          class="text-primary"
-        >
-          · {{ jobStatusText(activeJob) }}
-        </span>
       </div>
       <v-progress-linear
         :model-value="info.totalBooks ? (info.castReadyCount / info.totalBooks) * 100 : 0"
@@ -47,33 +41,6 @@
       {{ info.totalBooks === 1 ? 'book' : 'books' }} waiting.
     </div>
 
-    <div
-      v-if="activeJob"
-      class="mb-2"
-    >
-      <v-alert
-        type="info"
-        variant="tonal"
-        density="compact"
-      >
-        <span v-if="activeJob.state === 'queued'">Job queued…</span>
-        <span v-else>
-          {{ jobLabel(activeJob) }} — {{ activeJob.phase ?? 'working' }}
-          <span v-if="activeJob.bookIndex != null && activeJob.bookCount">
-            (book {{ activeJob.bookIndex }} of {{ activeJob.bookCount }})
-          </span>
-          <span v-if="activeJob.detail"> · {{ activeJob.detail }}</span>
-          <span v-if="elapsedText"> · {{ elapsedText }}</span>
-        </span>
-        <v-progress-linear
-          v-if="activeJob.bookIndex != null && activeJob.bookCount"
-          :model-value="(activeJob.bookIndex / activeJob.bookCount) * 100"
-          color="primary"
-          rounded
-          class="mt-1"
-        />
-      </v-alert>
-    </div>
     <v-alert
       v-if="lastError"
       type="error"
@@ -85,27 +52,35 @@
       @click:close="dismissError"
     />
 
-    <div class="d-flex flex-wrap ga-2 mb-2">
+    <div class="d-flex flex-wrap align-center ga-2 mb-2">
       <v-btn
         size="small"
         variant="tonal"
         prepend-icon="i-mdi:account-search"
-        :disabled="!canAnalyze || submitting != null"
+        :disabled="!!analyzeJob || (!canAnalyze && !analyzeJob) || submitting != null"
         :loading="submitting === 'analyze'"
         @click="submitAnalyze()"
       >
-        {{ analyzeLabel }}
+        {{ analyzeJob ? jobButtonText(analyzeJob) : analyzeLabel }}
       </v-btn>
       <v-btn
         size="small"
         variant="tonal"
         prepend-icon="i-mdi:headphones"
-        :disabled="!info?.canGenerateAllAudiobooks || submitting != null || !!activeJob"
+        :disabled="!!generateJob || !info?.canGenerateAllAudiobooks || submitting != null"
         :loading="submitting === 'generate'"
         @click="submitGenerate()"
       >
-        Generate all audiobooks
+        {{ generateJob ? jobButtonText(generateJob) : 'Generate all audiobooks' }}
       </v-btn>
+      <v-chip
+        v-if="mergeJob"
+        size="small"
+        rounded
+        label
+        color="info"
+        :text="mergeJob.state === 'queued' ? 'Merge — In Queue' : `Merging — ${jobPhaseLabel(mergeJob.phase)}`"
+      />
     </div>
 
     <div
@@ -216,7 +191,12 @@ import {
   postGenerateAudiobooks,
   postMergeCharacters,
 } from '@/api/series-characters'
-import type { CharacterJob, SeriesCharacter } from '@/functions/series-characters'
+import {
+  jobButtonText,
+  jobPhaseLabel,
+  type CharacterJob,
+  type SeriesCharacter,
+} from '@/functions/series-characters'
 import { useSelectionStore } from '@/stores/selection'
 
 const props = defineProps<{
@@ -232,26 +212,35 @@ const selected = ref<SeriesCharacter | null>(null)
 const submitting = ref<string | null>(null)
 const lastError = ref<string | null>(null)
 const jobs = ref<CharacterJob[]>([])
-const nowTs = ref(Date.now())
 
 const activeJob = computed(() =>
   jobs.value.find((j) => j.state === 'queued' || j.state === 'running'),
 )
 
-const elapsedText = computed(() => {
-  const job = activeJob.value
-  if (!job?.createdAt) return ''
-  const secs = Math.max(0, Math.floor((nowTs.value - new Date(job.createdAt).getTime()) / 1000))
-  if (secs < 5) return ''
-  return secs < 60 ? `${secs}s elapsed` : `${Math.floor(secs / 60)}m ${secs % 60}s elapsed`
-})
+// The buttons ARE the status display: each shows its own job's live state,
+// derived from the jobs endpoint on every poll — including after a refresh.
+const analyzeJob = computed(() =>
+  jobs.value.find(
+    (j) => j.type === 'analyze_series' && (j.state === 'queued' || j.state === 'running'),
+  ),
+)
+const generateJob = computed(() =>
+  jobs.value.find(
+    (j) => j.type === 'generate_audiobooks' && (j.state === 'queued' || j.state === 'running'),
+  ),
+)
+const mergeJob = computed(() =>
+  jobs.value.find(
+    (j) => j.type === 'merge_characters' && (j.state === 'queued' || j.state === 'running'),
+  ),
+)
 
 const markedCount = computed(
   () => info.value?.books.filter((b) => b.reprocessCharacters).length ?? 0,
 )
 
 const canAnalyze = computed(() => {
-  if (!info.value || submitting.value || activeJob.value) return false
+  if (!info.value || submitting.value) return false
   return info.value.needsAnalysisCount > 0 || markedCount.value > 0
 })
 
@@ -261,25 +250,6 @@ const analyzeLabel = computed(() => {
   if (markedCount.value > 0) return `Analyze (${markedCount.value} marked + new)`
   return 'Analyze new books'
 })
-
-function jobLabel(job: CharacterJob): string {
-  return job.type === 'analyze_series'
-    ? 'Analyzing characters'
-    : job.type === 'generate_audiobooks'
-      ? 'Generating audiobooks'
-      : job.type === 'merge_characters'
-        ? 'Merging characters'
-        : 'Working'
-}
-
-function jobStatusText(job: CharacterJob): string {
-  if (job.state === 'queued') return `${jobLabel(job)} queued`
-  const parts = [jobLabel(job), job.phase ?? 'working']
-  let text = parts.join(' — ')
-  if (job.bookIndex != null && job.bookCount) text += ` (book ${job.bookIndex} of ${job.bookCount})`
-  if (job.detail) text += ` · ${job.detail}`
-  return text
-}
 
 // Marking lives in Komga's native selection bar: when books of this series
 // are selected, add character/audiobook reprocessing actions to it.
@@ -351,7 +321,6 @@ function dismissError() {
 }
 
 async function pollJobs() {
-  nowTs.value = Date.now()
   try {
     const before = jobs.value
     jobs.value = await fetchCharacterJobs(props.seriesId)

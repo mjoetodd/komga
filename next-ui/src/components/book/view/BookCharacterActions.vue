@@ -51,30 +51,6 @@
       class="mb-2"
       :text="error"
     />
-    <v-alert
-      v-if="notice"
-      type="success"
-      variant="tonal"
-      density="compact"
-      class="mb-2"
-      :text="notice"
-    />
-    <v-alert
-      v-if="jobProgress"
-      type="info"
-      variant="tonal"
-      density="compact"
-      class="mb-2"
-    >
-      {{ jobProgress }}
-      <v-progress-linear
-        v-if="trackedJob?.bookCount"
-        :model-value="((trackedJob.bookIndex ?? 0) / trackedJob.bookCount) * 100"
-        color="primary"
-        rounded
-        class="mt-1"
-      />
-    </v-alert>
 
     <div class="d-flex flex-wrap ga-2">
       <v-btn
@@ -82,17 +58,17 @@
         variant="tonal"
         prepend-icon="i-mdi:account-search"
         :loading="busy === 'analyze'"
-        :disabled="busy != null || !!trackedJob"
+        :disabled="busy != null || !!bookJob"
         @click="analyze"
       >
-        {{ state.castState === 'READY' ? 'Re-analyze book' : 'Analyze book' }}
+        {{ analyzeText }}
       </v-btn>
       <v-btn
         size="small"
         variant="tonal"
         prepend-icon="i-mdi:headphones"
         :loading="busy === 'generate'"
-        :disabled="busy != null || !!trackedJob || state.castState !== 'READY'"
+        :disabled="busy != null || !!bookJob || state.castState !== 'READY'"
         :title="
           state.castState !== 'READY'
             ? 'Character analysis must finish first'
@@ -100,7 +76,7 @@
         "
         @click="generate"
       >
-        {{ state.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook' }}
+        {{ generateText }}
       </v-btn>
       <v-btn
         size="small"
@@ -131,7 +107,7 @@ import {
   postCharacterMarks,
   postGenerateAudiobooks,
 } from '@/api/series-characters'
-import type { CharacterJob } from '@/functions/series-characters'
+import { jobButtonText, type CharacterJob } from '@/functions/series-characters'
 
 const props = defineProps<{
   bookId: string
@@ -151,26 +127,33 @@ const state = computed(() =>
 )
 const busy = ref<string | null>(null)
 const error = ref<string | null>(null)
-const notice = ref<string | null>(null)
-const trackedJob = ref<CharacterJob | null>(null)
+const jobs = ref<CharacterJob[]>([])
 
-const jobProgress = computed(() => {
-  const job = trackedJob.value
-  if (!job || (job.state !== 'queued' && job.state !== 'running')) return ''
-  const label =
-    job.type === 'analyze_series'
-      ? 'Analyzing characters'
-      : job.type === 'generate_audiobooks'
-        ? 'Generating audiobook'
-        : 'Working'
-  if (job.state === 'queued') return `${label} — queued…`
-  const parts = [label, job.phase ?? 'working']
-  let text = parts.join(' — ')
-  if (job.bookIndex != null && job.bookCount && job.bookCount > 1) {
-    text += ` (book ${job.bookIndex} of ${job.bookCount})`
-  }
-  if (job.detail) text += ` · ${job.detail}`
-  return text
+// The buttons ARE the status display: the active job covering this book
+// (matched by the job's book list) drives both buttons' text and disabled
+// state, derived from the jobs endpoint on every poll — so a refresh or a
+// return visit always shows the true current state.
+const bookJob = computed(() => {
+  const num = state.value?.number
+  return jobs.value.find((j) => {
+    if (j.state !== 'queued' && j.state !== 'running') return false
+    if (num != null && j.bookNumbers && j.bookNumbers.length > 0) {
+      return j.bookNumbers.includes(num)
+    }
+    return num != null && (j.detail?.includes(`#${num}`) ?? false)
+  })
+})
+
+const analyzeText = computed(() => {
+  const job = bookJob.value
+  if (job?.type === 'analyze_series') return jobButtonText(job)
+  return state.value?.castState === 'READY' ? 'Re-analyze book' : 'Analyze book'
+})
+
+const generateText = computed(() => {
+  const job = bookJob.value
+  if (job?.type === 'generate_audiobooks') return jobButtonText(job)
+  return state.value?.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook'
 })
 
 async function refresh() {
@@ -179,35 +162,16 @@ async function refresh() {
   })
 }
 
-async function pollTracked() {
+async function pollJobs() {
   try {
-    const jobs = await fetchCharacterJobs(props.seriesId)
-    if (trackedJob.value) {
-      const current = jobs.find((j) => j.id === trackedJob.value!.id)
-      if (!current) return
-      trackedJob.value = current
-      if (current.state === 'done') {
-        notice.value =
-          current.type === 'generate_audiobooks'
-            ? 'Audiobook generation complete.'
-            : 'Character analysis complete.'
-        trackedJob.value = null
-        await refresh()
-      } else if (current.state === 'error') {
-        error.value = current.error ?? 'The job failed'
-        trackedJob.value = null
-      }
-    } else {
-      // adopt an in-flight job that names this book (e.g. started from the
-      // series page) so progress shows here too
-      const num = state.value?.number
-      const active = jobs.find(
-        (j) =>
-          (j.state === 'queued' || j.state === 'running') &&
-          num != null &&
-          (j.detail?.includes(`#${num}`) ?? false),
-      )
-      if (active) trackedJob.value = active
+    const before = jobs.value
+    jobs.value = await fetchCharacterJobs(props.seriesId)
+    const wasActive = before.some((j) => j.state === 'queued' || j.state === 'running')
+    const nowActive = jobs.value.some((j) => j.state === 'queued' || j.state === 'running')
+    if (wasActive && !nowActive) {
+      const failed = jobs.value.find((j) => j.state === 'error')
+      if (failed?.error) error.value = failed.error
+      await refresh()
     }
   } catch {
     // jobs endpoint unavailable — stay silent
@@ -216,8 +180,8 @@ async function pollTracked() {
 
 let jobTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
-  void pollTracked()
-  jobTimer = setInterval(() => void pollTracked(), 4000)
+  void pollJobs()
+  jobTimer = setInterval(() => void pollJobs(), 4000)
 })
 onUnmounted(() => {
   if (jobTimer) clearInterval(jobTimer)
@@ -226,12 +190,9 @@ onUnmounted(() => {
 async function analyze() {
   busy.value = 'analyze'
   error.value = null
-  notice.value = null
   try {
-    const job = await postAnalyzeCharacters(props.seriesId, [props.bookId])
-    trackedJob.value = { ...job, state: 'queued' }
-    notice.value = 'Analysis queued.'
-    void pollTracked()
+    await postAnalyzeCharacters(props.seriesId, [props.bookId])
+    await pollJobs()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue analysis'
   } finally {
@@ -242,12 +203,9 @@ async function analyze() {
 async function generate() {
   busy.value = 'generate'
   error.value = null
-  notice.value = null
   try {
-    const job = await postGenerateAudiobooks(props.seriesId, [props.bookId])
-    trackedJob.value = { ...job, state: 'queued' }
-    notice.value = 'Audiobook generation queued.'
-    void pollTracked()
+    await postGenerateAudiobooks(props.seriesId, [props.bookId])
+    await pollJobs()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue audiobook generation'
   } finally {

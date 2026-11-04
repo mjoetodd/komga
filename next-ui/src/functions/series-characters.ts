@@ -75,6 +75,43 @@ export interface CharacterJob {
   detail?: string | null
   error?: string | null
   createdAt?: string | null
+  bookNumbers?: number[]
+}
+
+/** Friendly phase names for button status text. */
+export function jobPhaseLabel(phase?: string | null): string {
+  switch (phase) {
+    case 'parse':
+      return 'Parsing'
+    case 'parse-skip':
+      return 'Checking'
+    case 'assign-voices':
+      return 'Assigning voices'
+    case 'cast-sidecar':
+      return 'Writing cast'
+    case 'character-memory':
+      return 'Updating character memory'
+    case 'export':
+      return 'Finishing'
+    case 'render':
+      return 'Rendering'
+    case 'merge':
+      return 'Merging'
+    default:
+      return phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : 'Working'
+  }
+}
+
+/** The text a job's button shows while the job is queued or running. */
+export function jobButtonText(job: CharacterJob): string {
+  if (job.state === 'queued') return 'In Queue'
+  let text = jobPhaseLabel(job.phase)
+  if (job.bookIndex != null && job.bookCount && job.bookCount > 1) {
+    text += ` — book ${job.bookIndex} of ${job.bookCount}`
+  } else if (job.detail) {
+    text += ` — ${job.detail.replace(/^book /, '')}`
+  }
+  return text
 }
 
 export interface SeriesCharacters {

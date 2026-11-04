@@ -344,14 +344,9 @@
       <v-row v-if="castInfo" class="text-caption">
         <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">Audiobook cast</v-col>
         <v-col cols="8" sm="9" md="10" xl="11" class="py-1">
-          <div v-if="castInfo.narrator" class="py-1">
-            Narrator — voiced by {{ castInfo.narrator.voice }}
-            <v-chip label x-small outlined :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined">{{ castInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
-          </div>
-          <div v-for="member in castInfo.cast" :key="member.id" class="py-1">
-            <a href="#" @click.prevent="openBookCharacter(member.id)">{{ member.name }}</a> — voiced by {{ member.voice }}<span v-if="member.description"> — {{ member.description }}</span>
-            · {{ member.dialogueSegments }} {{ member.dialogueSegments === 1 ? 'line' : 'lines' }}
-            <v-chip label x-small outlined :color="member.voiceType === 'custom' ? 'primary' : undefined">{{ member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
+          <div class="py-1">
+            <v-chip v-if="castInfo.narrator" label small :outlined="castInfo.narrator.voiceType === 'custom'" class="me-1 mb-1" :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined" :title="'Narrator — voiced by ' + castInfo.narrator.voice">Narrator</v-chip>
+            <v-chip v-for="member in castInfo.cast" :key="member.id" label small :outlined="member.voiceType === 'custom'" class="me-1 mb-1" :color="member.voiceType === 'custom' ? 'primary' : undefined" :title="member.name + ' — voiced by ' + member.voice + ' · ' + member.dialogueSegments + ' lines in this book'" @click="openBookCharacter(member.id)">{{ member.name }}</v-chip>
           </div>
         </v-col>
       </v-row>
@@ -364,12 +359,11 @@
           <v-chip v-if="bookCharState.reprocessCharacters" label small outlined color="info">Marked: re-analyze</v-chip>
           <v-chip v-if="bookCharState.reprocessAudiobook" label small outlined color="info">Marked: re-render</v-chip>
           <div class="py-1 mt-1">
-            <v-btn small class="me-2" :disabled="bookCharBusy" @click="bookCharPost('analyze')">{{ bookCharState.castState === 'READY' ? 'Re-analyze book' : 'Analyze book' }}</v-btn>
-            <v-btn small class="me-2" :disabled="bookCharBusy || bookCharState.castState !== 'READY'" @click="bookCharPost('generate-audiobooks')">{{ bookCharState.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook' }}</v-btn>
+            <v-btn small class="me-2" :disabled="bookCharBusy || !!bookCharJob" @click="bookCharPost('analyze')">{{ bookCharAnalyzeLabel }}</v-btn>
+            <v-btn small class="me-2" :disabled="bookCharBusy || !!bookCharJob || bookCharState.castState !== 'READY'" @click="bookCharPost('generate-audiobooks')">{{ bookCharGenerateLabel }}</v-btn>
             <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessCharacters', !bookCharState.reprocessCharacters)">{{ bookCharState.reprocessCharacters ? 'Unmark re-analyze' : 'Mark for re-analysis' }}</v-btn>
             <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessAudiobook', !bookCharState.reprocessAudiobook)">{{ bookCharState.reprocessAudiobook ? 'Unmark re-render' : 'Mark for re-render' }}</v-btn>
-            <span v-if="bookCharJobText" class="ms-2">{{ bookCharJobText }}</span>
-            <span v-else-if="bookCharMessage" class="ms-2">{{ bookCharMessage }}</span>
+            <span v-if="bookCharMessage" class="ms-2">{{ bookCharMessage }}</span>
           </div>
         </v-col>
       </v-row>
@@ -613,7 +607,7 @@ export default Vue.extend({
       bookCharDialog: false,
       bookCharDetail: null as any,
       bookCharMergeParent: null as string | null,
-      bookCharJobText: '',
+      bookCharJob: null as any,
       bookCharPollTimer: null as any,
       bookCharPollSawActive: false,
     }
@@ -664,6 +658,14 @@ export default Vue.extend({
     bookCharMergeCandidates(): any[] {
       if (!this.bookCharInfo || !this.bookCharDetail) return []
       return (this.bookCharInfo.characters || []).filter((c: any) => c.id !== this.bookCharDetail.id && c.status !== 'merged')
+    },
+    bookCharAnalyzeLabel(): string {
+      if (this.bookCharJob && this.bookCharJob.type === 'analyze_series') return this.bookCharJobButtonText(this.bookCharJob)
+      return this.bookCharState && this.bookCharState.castState === 'READY' ? 'Re-analyze book' : 'Analyze book'
+    },
+    bookCharGenerateLabel(): string {
+      if (this.bookCharJob && this.bookCharJob.type === 'generate_audiobooks') return this.bookCharJobButtonText(this.bookCharJob)
+      return this.bookCharState && this.bookCharState.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook'
     },
     unavailable(): boolean {
       return this.book.deleted || this.$store.getters.getLibraryById(this.book.libraryId).unavailable
@@ -802,6 +804,23 @@ export default Vue.extend({
         this.bookCharBusy = false
       }
     },
+    bookCharJobButtonText(job: any): string {
+      if (job.state === 'queued') return 'In Queue'
+      const phases: Record<string, string> = {
+        'parse': 'Parsing',
+        'parse-skip': 'Checking',
+        'assign-voices': 'Assigning voices',
+        'cast-sidecar': 'Writing cast',
+        'character-memory': 'Updating character memory',
+        'export': 'Finishing',
+        'render': 'Rendering',
+        'merge': 'Merging',
+      }
+      let text = phases[job.phase] || (job.phase ? job.phase.charAt(0).toUpperCase() + job.phase.slice(1) : 'Working')
+      if (job.bookIndex != null && job.bookCount && job.bookCount > 1) text += ` — book ${job.bookIndex} of ${job.bookCount}`
+      else if (job.detail) text += ` — ${String(job.detail).replace(/^book /, '')}`
+      return text
+    },
     async bookCharPollJobs() {
       try {
         const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/jobs`, {
@@ -811,13 +830,17 @@ export default Vue.extend({
         if (!response.ok) return
         const jobs = await response.json()
         const num = (this.book as any).number
-        const active = (jobs || []).find((j: any) => (j.state === 'queued' || j.state === 'running') && num != null && j.detail && j.detail.includes(`#${num}`))
+        const active = (jobs || []).find((j: any) => {
+          if (j.state !== 'queued' && j.state !== 'running') return false
+          if (num == null) return false
+          if (j.bookNumbers && j.bookNumbers.length > 0) return j.bookNumbers.includes(num)
+          return j.detail && j.detail.includes(`#${num}`)
+        })
         if (active) {
           this.bookCharPollSawActive = true
-          const label = active.type === 'analyze_series' ? 'Analyzing characters' : active.type === 'generate_audiobooks' ? 'Generating audiobook' : 'Working'
-          this.bookCharJobText = active.state === 'queued' ? `${label} — queued…` : `${label} — ${active.phase || 'working'} · ${active.detail}`
+          this.bookCharJob = active
         } else if (this.bookCharPollSawActive) {
-          this.bookCharJobText = ''
+          this.bookCharJob = null
           this.bookCharPollSawActive = false
           const failed = (jobs || []).find((j: any) => j.state === 'error')
           if (failed && failed.error) this.bookCharMessage = failed.error
@@ -825,6 +848,7 @@ export default Vue.extend({
           if (this.book.cast) this.loadCast(this.bookId)
           this.stopBookCharPoll()
         } else {
+          this.bookCharJob = null
           this.stopBookCharPoll()
         }
       } catch (e) {
@@ -854,7 +878,7 @@ export default Vue.extend({
           body: JSON.stringify({bookIds: [this.bookId]}),
         })
         if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`)
-        this.bookCharMessage = 'Queued.'
+        this.bookCharMessage = ''
         this.startBookCharPoll()
       } catch (e: any) {
         this.bookCharMessage = e.message || 'Request failed'

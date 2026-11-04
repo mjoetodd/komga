@@ -305,11 +305,11 @@
           <div v-else class="py-1">No character analysis yet for this series.</div>
 
           <div class="py-1">
-            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">{{ charAnalyzeLabel }}</v-btn>
-            <v-btn small class="me-2" :disabled="charBusy || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">Generate all audiobooks</v-btn>
+            <v-btn small class="me-2" :disabled="charBusy || !!charAnalyzeJob || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">{{ charAnalyzeButtonLabel }}</v-btn>
+            <v-btn small class="me-2" :disabled="charBusy || !!charGenerateJob || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">{{ charGenerateButtonLabel }}</v-btn>
             <v-btn small text @click="loadCharacters(seriesId)">Refresh</v-btn>
-            <span v-if="charJobText" class="ms-2">{{ charJobText }}</span>
-            <span v-else-if="charMessage" class="ms-2">{{ charMessage }}</span>
+            <v-chip v-if="charMergeJob" label small outlined color="info" class="ms-2">{{ charMergeJob.state === 'queued' ? 'Merge — In Queue' : 'Merging…' }}</v-chip>
+            <span v-if="charMessage" class="ms-2">{{ charMessage }}</span>
           </div>
 
           <div v-for="(s, i) in charactersInfo.suggestions" :key="'sug-' + i" class="py-1">
@@ -739,7 +739,7 @@ export default Vue.extend({
       charactersInfo: null as any,
       charBusy: false,
       charMessage: '',
-      charJobText: '',
+      charJobs: [] as any[],
       charPollTimer: null as any,
       charPollSawActive: false,
       charDialog: false,
@@ -757,6 +757,21 @@ export default Vue.extend({
       if (marked > 0) return `Analyze (${marked} marked + new)`
       if (this.charactersInfo.castReadyCount === 0) return 'Analyze characters'
       return 'Analyze new books'
+    },
+    charAnalyzeJob(): any {
+      return (this.charJobs || []).find((j: any) => j.type === 'analyze_series' && (j.state === 'queued' || j.state === 'running')) || null
+    },
+    charGenerateJob(): any {
+      return (this.charJobs || []).find((j: any) => j.type === 'generate_audiobooks' && (j.state === 'queued' || j.state === 'running')) || null
+    },
+    charMergeJob(): any {
+      return (this.charJobs || []).find((j: any) => j.type === 'merge_characters' && (j.state === 'queued' || j.state === 'running')) || null
+    },
+    charAnalyzeButtonLabel(): string {
+      return this.charAnalyzeJob ? this.charJobButtonText(this.charAnalyzeJob) : this.charAnalyzeLabel
+    },
+    charGenerateButtonLabel(): string {
+      return this.charGenerateJob ? this.charJobButtonText(this.charGenerateJob) : 'Generate all audiobooks'
     },
     charMergeCandidates(): any[] {
       if (!this.charactersInfo || !this.charDetail) return []
@@ -1139,7 +1154,7 @@ export default Vue.extend({
           const text = await response.text()
           throw new Error(text || `Request failed (${response.status})`)
         }
-        this.charMessage = 'Queued — the worker picks jobs up within a few seconds.'
+        this.charMessage = ''
         await this.loadCharacters(this.seriesId)
         this.startCharPoll()
       } catch (e: any) {
@@ -1162,6 +1177,23 @@ export default Vue.extend({
       else body.reprocessAudiobook = true
       this.charPost('marks', body)
     },
+    charJobButtonText(job: any): string {
+      if (job.state === 'queued') return 'In Queue'
+      const phases: Record<string, string> = {
+        'parse': 'Parsing',
+        'parse-skip': 'Checking',
+        'assign-voices': 'Assigning voices',
+        'cast-sidecar': 'Writing cast',
+        'character-memory': 'Updating character memory',
+        'export': 'Finishing',
+        'render': 'Rendering',
+        'merge': 'Merging',
+      }
+      let text = phases[job.phase] || (job.phase ? job.phase.charAt(0).toUpperCase() + job.phase.slice(1) : 'Working')
+      if (job.bookIndex != null && job.bookCount && job.bookCount > 1) text += ` — book ${job.bookIndex} of ${job.bookCount}`
+      else if (job.detail) text += ` — ${String(job.detail).replace(/^book /, '')}`
+      return text
+    },
     async charPollJobs() {
       try {
         const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.seriesId}/characters/jobs`, {
@@ -1170,19 +1202,11 @@ export default Vue.extend({
         })
         if (!response.ok) return
         const jobs = await response.json()
+        this.charJobs = jobs || []
         const active = (jobs || []).find((j: any) => j.state === 'queued' || j.state === 'running')
         if (active) {
           this.charPollSawActive = true
-          const label = active.type === 'analyze_series' ? 'Analyzing characters' : active.type === 'generate_audiobooks' ? 'Generating audiobooks' : active.type === 'merge_characters' ? 'Merging characters' : 'Working'
-          if (active.state === 'queued') this.charJobText = `${label} — queued…`
-          else {
-            let text = `${label} — ${active.phase || 'working'}`
-            if (active.bookIndex != null && active.bookCount) text += ` (book ${active.bookIndex} of ${active.bookCount})`
-            if (active.detail) text += ` · ${active.detail}`
-            this.charJobText = text
-          }
         } else if (this.charPollSawActive) {
-          this.charJobText = ''
           this.charPollSawActive = false
           const failed = (jobs || []).find((j: any) => j.state === 'error')
           if (failed && failed.error) this.charMessage = failed.error

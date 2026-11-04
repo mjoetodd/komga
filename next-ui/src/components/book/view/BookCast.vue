@@ -5,49 +5,29 @@
       Audiobook cast
     </div>
 
-    <v-list
-      density="compact"
-      class="py-0 bg-transparent"
-    >
-      <v-list-item
+    <div class="d-flex flex-wrap ga-1">
+      <v-chip
         v-if="castInfo.narrator"
-        :title="'Narrator'"
-        :subtitle="`voiced by ${castInfo.narrator.voice}`"
-      >
-        <template #append>
-          <v-chip
-            size="x-small"
-            rounded
-            label
-            :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined"
-            :text="castInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice'"
-          />
-        </template>
-      </v-list-item>
-
-      <v-list-item
+        rounded
+        label
+        :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined"
+        :variant="castInfo.narrator.voiceType === 'custom' ? 'outlined' : undefined"
+        :title="`Narrator — voiced by ${castInfo.narrator.voice}`"
+        text="Narrator"
+      />
+      <v-chip
         v-for="member in castInfo.cast"
         :key="member.id"
-        :title="member.name"
-        :subtitle="memberSubtitle(member)"
+        rounded
+        label
+        clickable
+        :color="member.voiceType === 'custom' ? 'primary' : undefined"
+        :variant="member.voiceType === 'custom' ? 'outlined' : undefined"
+        :title="`${member.name} — ${memberSubtitle(member)} · ${member.dialogueSegments} ${member.dialogueSegments === 1 ? 'line' : 'lines'} in this book`"
+        :text="member.name"
         @click="openCharacter(member.id)"
-      >
-        <template #append>
-          <div class="d-flex align-center ga-2">
-            <span class="text-body-small text-medium-emphasis">
-              {{ member.dialogueSegments }} {{ member.dialogueSegments === 1 ? 'line' : 'lines' }}
-            </span>
-            <v-chip
-              size="x-small"
-              rounded
-              label
-              :color="member.voiceType === 'custom' ? 'primary' : undefined"
-              :text="member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice'"
-            />
-          </div>
-        </template>
-      </v-list-item>
-    </v-list>
+      />
+    </div>
 
     <v-dialog
       :model-value="selectedCharacter != null"
