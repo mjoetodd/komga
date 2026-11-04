@@ -32,6 +32,9 @@ data class BookDto(
   // true when a prebuilt audiobook sidecar (<name>.audio.mp3) was indexed for
   // this book during a library scan - see AudiobookSidecarConsumer
   val audiobook: Boolean = false,
+  // true when a cast sidecar (<name>.cast.json) was indexed for this book
+  // during a library scan - see CastSidecarConsumer
+  val cast: Boolean = false,
 )
 
 fun BookDto.restrictUrl(restrict: Boolean) = if (restrict) copy(url = FilenameUtils.getName(url)) else this

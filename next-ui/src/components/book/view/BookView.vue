@@ -295,6 +295,15 @@ tio
         </v-col>
       </v-row>
 
+      <v-row
+        v-if="hasCast"
+        density="compact"
+      >
+        <v-col>
+          <BookCast :book-id="book.id" />
+        </v-col>
+      </v-row>
+
       <v-row v-if="display.xs.value && containedIn.length > 0">
         <v-col>
           <ContainerChip
@@ -349,6 +358,7 @@ import {
   notableEntityToQuery,
 } from '@/functions/filter'
 import { notableEntitiesKindsMessages } from '@/types/referential/notableEntity'
+import BookCast from './BookCast.vue'
 
 const intl = useIntl()
 const display = useDisplay()
@@ -368,6 +378,10 @@ const props = defineProps<{
 
 const { isRead, progressPercent, pagesLeft } = useBookReadProgress(() => props.book)
 const { isDeleted, format } = useBook(() => props.book)
+
+// `cast` is served by the backend DTO; the generated client type picks it
+// up on the next OpenAPI regeneration
+const hasCast = computed(() => (props.book as BookDto & { cast?: boolean }).cast === true)
 
 const { context } = useBrowsingContext()
 const popped = computed(() => popBrowsingContext(context.value))

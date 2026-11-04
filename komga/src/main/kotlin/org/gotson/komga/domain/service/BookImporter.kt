@@ -261,6 +261,7 @@ class BookImporter(
           Sidecar.Type.ARTWORK -> taskEmitter.refreshBookLocalArtwork(importedBook)
           Sidecar.Type.METADATA -> taskEmitter.refreshBookMetadata(importedBook)
           Sidecar.Type.AUDIO -> Unit
+          Sidecar.Type.CAST -> Unit
         }
         val destSidecar =
           sourceSidecar.copy(

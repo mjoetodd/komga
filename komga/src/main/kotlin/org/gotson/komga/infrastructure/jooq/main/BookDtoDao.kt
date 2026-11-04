@@ -498,6 +498,19 @@ class BookDtoDao(
           .fetchSet(sc.PARENT_URL)
       }
 
+    // Same, for cast sidecars (<book>.cast.json)
+    val castParentUrls: Set<String> =
+      if (bookIds.isEmpty()) {
+        emptySet()
+      } else {
+        dsl
+          .select(sc.PARENT_URL)
+          .from(sc)
+          .where(sc.PARENT_URL.`in`(records.getValues(b.URL)))
+          .and(sc.URL.like("%.cast.json"))
+          .fetchSet(sc.PARENT_URL)
+      }
+
     return records
       .map { rec ->
         val br = rec.into(b)
@@ -506,7 +519,7 @@ class BookDtoDao(
         val rr = rec.into(r)
         val seriesTitle = rec.into(sd.TITLE).component1()
 
-        br.toDto(mr.toDto(), dr.toDto(authors[br.id].orEmpty(), tags[br.id].orEmpty().toSet(), links[br.id].orEmpty(), notableEntities[br.id].orEmpty()), if (rr.userId != null) rr.toDto() else null, seriesTitle, br.url in audiobookParentUrls)
+        br.toDto(mr.toDto(), dr.toDto(authors[br.id].orEmpty(), tags[br.id].orEmpty().toSet(), links[br.id].orEmpty(), notableEntities[br.id].orEmpty()), if (rr.userId != null) rr.toDto() else null, seriesTitle, br.url in audiobookParentUrls, br.url in castParentUrls)
       }
   }
 
@@ -516,6 +529,7 @@ class BookDtoDao(
     readProgress: ReadProgressDto?,
     seriesTitle: String,
     audiobook: Boolean = false,
+    cast: Boolean = false,
   ) = BookDto(
     id = id,
     seriesId = seriesId,
@@ -535,6 +549,7 @@ class BookDtoDao(
     fileHash = fileHash,
     oneshot = oneshot,
     audiobook = audiobook,
+    cast = cast,
   )
 
   private fun MediaRecord.toDto() =

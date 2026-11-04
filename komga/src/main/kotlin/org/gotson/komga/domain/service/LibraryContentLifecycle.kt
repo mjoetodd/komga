@@ -236,6 +236,7 @@ class LibraryContentLifecycle(
                   // audiobook sidecars are indexed in the sidecar table (the book DTO
                   // derives its audiobook flag from it) - no refresh task needed
                   Sidecar.Type.AUDIO -> Unit
+                  Sidecar.Type.CAST -> Unit
                 }
               }
 
@@ -248,6 +249,7 @@ class LibraryContentLifecycle(
                   // audiobook sidecars are indexed in the sidecar table (the book DTO
                   // derives its audiobook flag from it) - no refresh task needed
                   Sidecar.Type.AUDIO -> Unit
+                  Sidecar.Type.CAST -> Unit
                 }
               }
           }

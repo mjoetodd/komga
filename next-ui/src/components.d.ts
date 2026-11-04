@@ -41,6 +41,7 @@ declare module 'vue' {
     BookNavigation: typeof import('./components/book/Navigation.vue')['default']
     BookView: typeof import('./components/book/view/BookView.vue')['default']
     BookViewActions: typeof import('./components/book/view/Actions.vue')['default']
+    BookViewBookCast: typeof import('./components/book/view/BookCast.vue')['default']
     BtnAddKind: typeof import('./components/btn/AddKind.vue')['default']
     BtnAddRole: typeof import('./components/btn/AddRole.vue')['default']
     BuildCommit: typeof import('./components/BuildCommit.vue')['default']
