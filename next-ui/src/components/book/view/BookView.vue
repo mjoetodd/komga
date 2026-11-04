@@ -300,7 +300,10 @@ tio
         density="compact"
       >
         <v-col>
-          <BookCast :book-id="book.id" />
+          <BookCast
+            :book-id="book.id"
+            :series-id="book.seriesId"
+          />
         </v-col>
       </v-row>
 

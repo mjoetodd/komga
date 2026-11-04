@@ -30,6 +30,7 @@
         :key="member.id"
         :title="member.name"
         :subtitle="memberSubtitle(member)"
+        @click="openCharacter(member.id)"
       >
         <template #append>
           <div class="d-flex align-center ga-2">
@@ -47,21 +48,63 @@
         </template>
       </v-list-item>
     </v-list>
+
+    <v-dialog
+      :model-value="selectedCharacter != null"
+      max-width="640"
+      @update:model-value="(v: boolean) => { if (!v) selectedCharacter = null }"
+    >
+      <SeriesViewSeriesCharacterDetail
+        v-if="selectedCharacter && seriesInfo"
+        :character="selectedCharacter"
+        :all-characters="seriesInfo.characters"
+        @close="selectedCharacter = null"
+        @merge="onMerge"
+      />
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useQuery } from '@pinia/colada'
 import { castQuery } from '@/colada/cast'
+import { seriesCharactersQuery } from '@/colada/series-characters'
+import { postMergeCharacters } from '@/api/series-characters'
 import type { CastMember } from '@/functions/cast'
+import type { SeriesCharacter } from '@/functions/series-characters'
 
 const props = defineProps<{
   bookId: string
+  seriesId: string
 }>()
 
 const { data: castInfo } = useQuery(() => ({
   ...castQuery({ bookId: props.bookId }),
 }))
+
+const wantedCharacterId = ref<string | null>(null)
+const { data: seriesInfo } = useQuery(() => ({
+  ...seriesCharactersQuery({ seriesId: props.seriesId }),
+  enabled: wantedCharacterId.value != null,
+}))
+
+const selectedCharacter = computed<SeriesCharacter | null>(() => {
+  if (!wantedCharacterId.value || !seriesInfo.value) return null
+  return seriesInfo.value.characters.find((c) => c.id === wantedCharacterId.value) ?? null
+})
+
+function openCharacter(id: string) {
+  wantedCharacterId.value = id
+}
+
+async function onMerge(parentId: string, childId: string) {
+  wantedCharacterId.value = null
+  try {
+    await postMergeCharacters(props.seriesId, parentId, childId)
+  } catch {
+    // merge failures surface on the series page; the cast card stays quiet
+  }
+}
 
 function memberSubtitle(member: CastMember): string {
   const parts = [`voiced by ${member.voice}`]

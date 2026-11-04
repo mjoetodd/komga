@@ -59,6 +59,22 @@
       class="mb-2"
       :text="notice"
     />
+    <v-alert
+      v-if="jobProgress"
+      type="info"
+      variant="tonal"
+      density="compact"
+      class="mb-2"
+    >
+      {{ jobProgress }}
+      <v-progress-linear
+        v-if="trackedJob?.bookCount"
+        :model-value="((trackedJob.bookIndex ?? 0) / trackedJob.bookCount) * 100"
+        color="primary"
+        rounded
+        class="mt-1"
+      />
+    </v-alert>
 
     <div class="d-flex flex-wrap ga-2">
       <v-btn
@@ -66,7 +82,7 @@
         variant="tonal"
         prepend-icon="i-mdi:account-search"
         :loading="busy === 'analyze'"
-        :disabled="busy != null"
+        :disabled="busy != null || !!trackedJob"
         @click="analyze"
       >
         {{ state.castState === 'READY' ? 'Re-analyze book' : 'Analyze book' }}
@@ -76,7 +92,7 @@
         variant="tonal"
         prepend-icon="i-mdi:headphones"
         :loading="busy === 'generate'"
-        :disabled="busy != null || state.castState !== 'READY'"
+        :disabled="busy != null || !!trackedJob || state.castState !== 'READY'"
         :title="
           state.castState !== 'READY'
             ? 'Character analysis must finish first'
@@ -110,10 +126,12 @@
 import { useQuery, useQueryCache } from '@pinia/colada'
 import { seriesCharactersQuery, QUERY_KEYS_SERIES_CHARACTERS } from '@/colada/series-characters'
 import {
+  fetchCharacterJobs,
   postAnalyzeCharacters,
   postCharacterMarks,
   postGenerateAudiobooks,
 } from '@/api/series-characters'
+import type { CharacterJob } from '@/functions/series-characters'
 
 const props = defineProps<{
   bookId: string
@@ -134,6 +152,26 @@ const state = computed(() =>
 const busy = ref<string | null>(null)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
+const trackedJob = ref<CharacterJob | null>(null)
+
+const jobProgress = computed(() => {
+  const job = trackedJob.value
+  if (!job || (job.state !== 'queued' && job.state !== 'running')) return ''
+  const label =
+    job.type === 'analyze_series'
+      ? 'Analyzing characters'
+      : job.type === 'generate_audiobooks'
+        ? 'Generating audiobook'
+        : 'Working'
+  if (job.state === 'queued') return `${label} — queued…`
+  const parts = [label, job.phase ?? 'working']
+  let text = parts.join(' — ')
+  if (job.bookIndex != null && job.bookCount && job.bookCount > 1) {
+    text += ` (book ${job.bookIndex} of ${job.bookCount})`
+  }
+  if (job.detail) text += ` · ${job.detail}`
+  return text
+})
 
 async function refresh() {
   await queryCache.invalidateQueries({
@@ -141,13 +179,59 @@ async function refresh() {
   })
 }
 
+async function pollTracked() {
+  try {
+    const jobs = await fetchCharacterJobs(props.seriesId)
+    if (trackedJob.value) {
+      const current = jobs.find((j) => j.id === trackedJob.value!.id)
+      if (!current) return
+      trackedJob.value = current
+      if (current.state === 'done') {
+        notice.value =
+          current.type === 'generate_audiobooks'
+            ? 'Audiobook generation complete.'
+            : 'Character analysis complete.'
+        trackedJob.value = null
+        await refresh()
+      } else if (current.state === 'error') {
+        error.value = current.error ?? 'The job failed'
+        trackedJob.value = null
+      }
+    } else {
+      // adopt an in-flight job that names this book (e.g. started from the
+      // series page) so progress shows here too
+      const num = state.value?.number
+      const active = jobs.find(
+        (j) =>
+          (j.state === 'queued' || j.state === 'running') &&
+          num != null &&
+          (j.detail?.includes(`#${num}`) ?? false),
+      )
+      if (active) trackedJob.value = active
+    }
+  } catch {
+    // jobs endpoint unavailable — stay silent
+  }
+}
+
+let jobTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  void pollTracked()
+  jobTimer = setInterval(() => void pollTracked(), 4000)
+})
+onUnmounted(() => {
+  if (jobTimer) clearInterval(jobTimer)
+})
+
 async function analyze() {
   busy.value = 'analyze'
   error.value = null
   notice.value = null
   try {
-    await postAnalyzeCharacters(props.seriesId, [props.bookId])
-    notice.value = 'Analysis queued — progress and results show on the series page.'
+    const job = await postAnalyzeCharacters(props.seriesId, [props.bookId])
+    trackedJob.value = { ...job, state: 'queued' }
+    notice.value = 'Analysis queued.'
+    void pollTracked()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue analysis'
   } finally {
@@ -160,8 +244,10 @@ async function generate() {
   error.value = null
   notice.value = null
   try {
-    await postGenerateAudiobooks(props.seriesId, [props.bookId])
-    notice.value = 'Audiobook generation queued — progress shows on the series page.'
+    const job = await postGenerateAudiobooks(props.seriesId, [props.bookId])
+    trackedJob.value = { ...job, state: 'queued' }
+    notice.value = 'Audiobook generation queued.'
+    void pollTracked()
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Could not queue audiobook generation'
   } finally {

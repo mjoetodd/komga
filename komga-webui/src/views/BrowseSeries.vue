@@ -42,6 +42,7 @@
       v-model="selectedBooks"
       kind="books"
       show-select-all
+      :character-actions="!!(charactersInfo && charactersInfo.available)"
       @unselect-all="selectedBooks = []"
       @select-all="selectedBooks = books"
       @mark-read="markSelectedRead"
@@ -50,6 +51,8 @@
       @bulk-edit="bulkEditMultipleBooks"
       @edit="editMultipleBooks"
       @delete="deleteBooks"
+      @mark-characters="charMarkSelected('characters')"
+      @mark-audiobook="charMarkSelected('audiobook')"
     />
 
     <filter-drawer
@@ -305,7 +308,8 @@
             <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">{{ charAnalyzeLabel }}</v-btn>
             <v-btn small class="me-2" :disabled="charBusy || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">Generate all audiobooks</v-btn>
             <v-btn small text @click="loadCharacters(seriesId)">Refresh</v-btn>
-            <span v-if="charMessage" class="ms-2">{{ charMessage }}</span>
+            <span v-if="charJobText" class="ms-2">{{ charJobText }}</span>
+            <span v-else-if="charMessage" class="ms-2">{{ charMessage }}</span>
           </div>
 
           <div v-for="(s, i) in charactersInfo.suggestions" :key="'sug-' + i" class="py-1">
@@ -320,30 +324,11 @@
           </div>
 
           <template v-if="charactersInfo.available">
-            <div v-if="charactersInfo.narrator" class="py-1">
-              Narrator — voiced by {{ charactersInfo.narrator.voice }}
-              <v-chip label x-small outlined :color="charactersInfo.narrator.voiceType === 'custom' ? 'primary' : undefined">{{ charactersInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
-            </div>
-            <div v-for="member in charactersInfo.characters" :key="member.id" class="py-1">
-              <a href="#" @click.prevent="openCharacter(member)">{{ member.name }}</a>
-              — voiced by {{ member.voice }} · {{ member.totalLines }} lines
-              <v-chip label x-small outlined :color="member.voiceType === 'custom' ? 'primary' : undefined">{{ member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
-              <v-chip v-if="member.status === 'merged'" label x-small outlined color="warning">merged</v-chip>
-              <div v-if="member.description" class="text-medium-emphasis">{{ member.description }}</div>
+            <div class="py-1">
+              <v-chip v-if="charactersInfo.narrator" label small outlined class="me-1 mb-1" :color="charactersInfo.narrator.voiceType === 'custom' ? 'primary' : undefined" :title="'Narrator — voiced by ' + charactersInfo.narrator.voice">Narrator</v-chip>
+              <v-chip v-for="member in charactersInfo.characters" :key="member.id" label small class="me-1 mb-1" :outlined="member.voiceType === 'custom'" :color="member.status === 'merged' ? 'warning' : (member.voiceType === 'custom' ? 'primary' : undefined)" :title="member.name + ' — voiced by ' + member.voice + ' · ' + member.totalLines + ' lines'" @click="openCharacter(member)">{{ member.name }}</v-chip>
             </div>
           </template>
-
-          <div class="py-1 mt-2">
-            <div class="text-uppercase">Book states</div>
-            <div v-for="b in charactersInfo.books" :key="b.file" class="py-0">
-              <v-checkbox v-model="charSelectedBooks" :value="b.bookId" :disabled="!b.bookId" dense hide-details class="d-inline-flex ma-0 pa-0"></v-checkbox>
-              Book {{ b.number }} — {{ b.file }}:
-              {{ b.castState === 'READY' ? 'Characters ready' : 'Needs analysis' }}<span v-if="b.hasAudiobook"> · Audiobook ✓</span><span v-if="b.reprocessCharacters"> · Marked: characters</span><span v-if="b.reprocessAudiobook"> · Marked: audiobook</span>
-            </div>
-            <v-btn x-small class="me-1 mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('characters', true)">Mark character reprocessing ({{ charSelectedBooks.length }})</v-btn>
-            <v-btn x-small class="me-1 mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('audiobook', true)">Mark audiobook reprocessing ({{ charSelectedBooks.length }})</v-btn>
-            <v-btn x-small text class="mt-1" :disabled="charBusy || charSelectedBooks.length === 0" @click="charMark('characters', false); charMark('audiobook', false)">Clear marks</v-btn>
-          </div>
         </v-col>
       </v-row>
 
@@ -361,8 +346,23 @@
               <div>Sample lines</div>
               <div v-for="(line, i) in charDetail.sampleLines" :key="i" class="font-italic">“{{ line }}”</div>
             </div>
+            <div v-if="charDetail.books && charDetail.books.length > 0" class="mt-2">
+              <div>Dialogue by book</div>
+              <div v-for="b in charDetail.books" :key="b.number" class="py-0">
+                Book {{ b.number }} — {{ b.lines }} {{ b.lines === 1 ? 'line' : 'lines' }}
+                <div v-for="(ev, ei) in (b.evidence || [])" :key="ei" class="font-italic text-medium-emphasis ms-2">{{ ev }}</div>
+              </div>
+            </div>
             <div v-if="charDetail.status !== 'merged'" class="mt-4">
-              <div>Same person as another character? Pick the parent — this character becomes its alias and affected audiobooks are marked for re-rendering.</div>
+              <div class="d-flex align-center">
+                <span>Parent character</span>
+                <v-tooltip top>
+                  <template v-slot:activator="{ on }">
+                    <v-icon small class="ms-1" v-on="on">mdi-information-outline</v-icon>
+                  </template>
+                  <span>Same person as another character? Pick the parent — this character becomes its alias and affected audiobooks are marked for re-rendering.</span>
+                </v-tooltip>
+              </div>
               <v-select v-model="charMergeParent" :items="charMergeCandidates" item-text="name" item-value="id" label="Parent character" clearable dense></v-select>
             </div>
           </v-card-text>
@@ -724,9 +724,11 @@ export default Vue.extend({
       readMore: false,
       readMoreTitles: false,
       charactersInfo: null as any,
-      charSelectedBooks: [] as string[],
       charBusy: false,
       charMessage: '',
+      charJobText: '',
+      charPollTimer: null as any,
+      charPollSawActive: false,
       charDialog: false,
       charDetail: null as any,
       charMergeParent: null as string | null,
@@ -927,6 +929,7 @@ export default Vue.extend({
     this.$eventHub.$on(COLLECTION_DELETED, this.collectionChanged)
   },
   beforeDestroy() {
+    this.stopCharPoll()
     this.$eventHub.$off(SERIES_CHANGED, this.seriesChanged)
     this.$eventHub.$off(SERIES_DELETED, this.seriesDeleted)
     this.$eventHub.$off(BOOK_ADDED, this.bookChanged)
@@ -1101,8 +1104,10 @@ export default Vue.extend({
           credentials: 'include',
           headers: {Accept: 'application/json'},
         })
-        if (response.ok) this.charactersInfo = await response.json()
-        else this.charactersInfo = null
+        if (response.ok) {
+          this.charactersInfo = await response.json()
+          this.startCharPoll()
+        } else this.charactersInfo = null
       } catch (e) {
         this.charactersInfo = null
       }
@@ -1123,6 +1128,7 @@ export default Vue.extend({
         }
         this.charMessage = 'Queued — the worker picks jobs up within a few seconds.'
         await this.loadCharacters(this.seriesId)
+        this.startCharPoll()
       } catch (e: any) {
         this.charMessage = e.message || 'Request failed'
       } finally {
@@ -1135,11 +1141,60 @@ export default Vue.extend({
     charGenerate() {
       this.charPost('generate-audiobooks', {})
     },
-    charMark(kind: string, value: boolean) {
-      const body: any = {bookIds: this.charSelectedBooks}
-      if (kind === 'characters') body.reprocessCharacters = value
-      else body.reprocessAudiobook = value
+    charMarkSelected(kind: string) {
+      const bookIds = (this.selectedBooks || []).map((b: any) => b.id)
+      if (bookIds.length === 0) return
+      const body: any = {bookIds}
+      if (kind === 'characters') body.reprocessCharacters = true
+      else body.reprocessAudiobook = true
       this.charPost('marks', body)
+    },
+    async charPollJobs() {
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.seriesId}/characters/jobs`, {
+          credentials: 'include',
+          headers: {Accept: 'application/json'},
+        })
+        if (!response.ok) return
+        const jobs = await response.json()
+        const active = (jobs || []).find((j: any) => j.state === 'queued' || j.state === 'running')
+        if (active) {
+          this.charPollSawActive = true
+          const label = active.type === 'analyze_series' ? 'Analyzing characters' : active.type === 'generate_audiobooks' ? 'Generating audiobooks' : active.type === 'merge_characters' ? 'Merging characters' : 'Working'
+          if (active.state === 'queued') this.charJobText = `${label} — queued…`
+          else {
+            let text = `${label} — ${active.phase || 'working'}`
+            if (active.bookIndex != null && active.bookCount) text += ` (book ${active.bookIndex} of ${active.bookCount})`
+            if (active.detail) text += ` · ${active.detail}`
+            this.charJobText = text
+          }
+        } else if (this.charPollSawActive) {
+          this.charJobText = ''
+          this.charPollSawActive = false
+          const failed = (jobs || []).find((j: any) => j.state === 'error')
+          if (failed && failed.error) this.charMessage = failed.error
+          await this.loadCharacters(this.seriesId)
+          this.stopCharPoll()
+        } else {
+          // nothing running — one check was enough
+          this.stopCharPoll()
+        }
+      } catch (e) {
+        // jobs endpoint unavailable — stay silent
+      }
+    },
+    startCharPoll() {
+      if (this.charPollTimer) return
+      this.charPollJobs()
+      this.charPollTimer = setInterval(() => this.charPollJobs(), 4000)
+      // stop polling after 15 minutes regardless, to avoid a stuck timer
+      setTimeout(() => this.stopCharPoll(), 15 * 60 * 1000)
+    },
+    stopCharPoll() {
+      if (this.charPollTimer) {
+        clearInterval(this.charPollTimer)
+        this.charPollTimer = null
+      }
     },
     openCharacter(character: any) {
       this.charDetail = character

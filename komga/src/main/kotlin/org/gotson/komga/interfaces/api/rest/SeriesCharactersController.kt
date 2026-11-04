@@ -27,6 +27,7 @@ data class CharacterBookStatDto(
   val number: Int? = null,
   val lines: Int = 0,
   val chars: Int = 0,
+  val evidence: List<String> = emptyList(),
 )
 
 data class SeriesCharacterDto(
@@ -128,6 +129,7 @@ class SeriesCharactersController(
   private val contentRestrictionChecker: ContentRestrictionChecker,
   private val characterBookStateDao: CharacterBookStateDao,
   private val characterJobService: CharacterJobService,
+  private val taskEmitter: org.gotson.komga.application.tasks.TaskEmitter,
 ) {
   // produces must name JSON explicitly (same converter quirk as the
   // audiobook/cast endpoints: a bare Accept: */* would otherwise 500)
@@ -370,7 +372,24 @@ class SeriesCharactersController(
     contentRestrictionChecker.checkContentRestrictionSeries(principal.user, seriesId)
     val series = seriesRepository.findByIdOrNull(seriesId) ?: throw ResponseStatusException(HttpStatus.NOT_FOUND)
     val slug = slugFor(seriesId, series)
-    return characterJobService.recentJobsForSlug(slug).map { job ->
+    val recent = characterJobService.recentJobsForSlug(slug)
+    // When a generate job has finished recently, fire a one-off library scan
+    // so the new audiobook sidecars get indexed (cover decorator, book DTO
+    // flags) instead of waiting for the next scheduled/manual scan.
+    recent.forEach { job ->
+      if (job.path("type").asText() == "generate_audiobooks") {
+        val status = characterJobService.readStatus(job.path("id").asText())
+        val finishedAt = status?.path("finishedAt")?.takeIf { it.isTextual }?.asText()
+        val fresh = finishedAt != null &&
+          java.time.Instant.parse(finishedAt).isAfter(java.time.Instant.now().minusSeconds(7200))
+        if (status?.path("state")?.asText() == "done" && fresh &&
+          characterJobService.claimScanTrigger(job.path("id").asText())
+        ) {
+          taskEmitter.scanLibrary(series.libraryId, false)
+        }
+      }
+    }
+    return recent.map { job ->
       val status = characterJobService.readStatus(job.path("id").asText())
       CharacterJobDto(
         id = job.path("id").asText(),
@@ -464,6 +483,7 @@ class SeriesCharactersController(
           number = b.path("number").takeIf { it.isNumber }?.asInt(),
           lines = b.path("lines").asInt(0),
           chars = b.path("chars").asInt(0),
+          evidence = b.path("evidence").map { it.asText() },
         )
       },
       sampleLines = node.path("sampleLines").map { it.asText() },

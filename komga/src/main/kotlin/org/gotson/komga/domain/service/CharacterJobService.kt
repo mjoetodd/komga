@@ -90,6 +90,15 @@ class CharacterJobService {
     return id
   }
 
+  private val scanClaimed = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+  /**
+   * Returns true exactly once per job id — used to fire a one-off library
+   * scan when a generate job finishes, so Komga indexes the new audiobook
+   * sidecars (cover decorator, book flags) without waiting for a manual scan.
+   */
+  fun claimScanTrigger(jobId: String): Boolean = scanClaimed.add(jobId)
+
   fun readStatus(jobId: String): JsonNode? {
     val f = statusDir.resolve("$jobId.json")
     if (!f.exists()) return null

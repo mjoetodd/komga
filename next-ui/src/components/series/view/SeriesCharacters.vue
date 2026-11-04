@@ -25,6 +25,12 @@
           {{ info.needsAnalysisCount === 1 ? 'book needs' : 'books need' }} analysis before series
           audiobooks unlock
         </span>
+        <span
+          v-if="activeJob"
+          class="text-primary"
+        >
+          · {{ jobStatusText(activeJob) }}
+        </span>
       </div>
       <v-progress-linear
         :model-value="info.totalBooks ? (info.castReadyCount / info.totalBooks) * 100 : 0"
@@ -57,6 +63,7 @@
             (book {{ activeJob.bookIndex }} of {{ activeJob.bookCount }})
           </span>
           <span v-if="activeJob.detail"> · {{ activeJob.detail }}</span>
+          <span v-if="elapsedText"> · {{ elapsedText }}</span>
         </span>
         <v-progress-linear
           v-if="activeJob.bookIndex != null && activeJob.bookCount"
@@ -99,71 +106,7 @@
       >
         Generate all audiobooks
       </v-btn>
-      <v-btn
-        size="small"
-        variant="text"
-        :prepend-icon="showBooks ? 'i-mdi:chevron-up' : 'i-mdi:chevron-down'"
-        @click="showBooks = !showBooks"
-      >
-        Book states
-      </v-btn>
     </div>
-
-    <v-expand-transition>
-      <div v-if="showBooks && info">
-        <div class="d-flex flex-wrap ga-2 mb-2">
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            :disabled="selectedBooks.length === 0"
-            @click="mark({ reprocessCharacters: true })"
-          >
-            Mark character reprocessing ({{ selectedBooks.length }})
-          </v-btn>
-          <v-btn
-            size="x-small"
-            variant="tonal"
-            :disabled="selectedBooks.length === 0"
-            @click="mark({ reprocessAudiobook: true })"
-          >
-            Mark audiobook reprocessing ({{ selectedBooks.length }})
-          </v-btn>
-          <v-btn
-            size="x-small"
-            variant="text"
-            :disabled="selectedBooks.length === 0"
-            @click="mark({ reprocessCharacters: false, reprocessAudiobook: false })"
-          >
-            Clear marks
-          </v-btn>
-        </div>
-        <v-list
-          density="compact"
-          class="py-0 bg-transparent mb-2"
-        >
-          <v-list-item
-            v-for="book in info.books"
-            :key="book.file"
-          >
-            <template #prepend>
-              <v-checkbox-btn
-                :model-value="book.bookId ? selectedBooks.includes(book.bookId) : false"
-                :disabled="!book.bookId"
-                @update:model-value="(v: boolean) => toggleBook(book.bookId, v)"
-              />
-            </template>
-            <v-list-item-title>Book {{ book.number }} — {{ book.file }}</v-list-item-title>
-            <v-list-item-subtitle>
-              <span v-if="book.castState === 'READY'">Characters ready</span>
-              <span v-else>Needs analysis</span>
-              <span v-if="book.hasAudiobook"> · Audiobook ✓</span>
-              <span v-if="book.reprocessCharacters"> · Marked: characters</span>
-              <span v-if="book.reprocessAudiobook"> · Marked: audiobook</span>
-            </v-list-item-subtitle>
-          </v-list-item>
-        </v-list>
-      </div>
-    </v-expand-transition>
 
     <div
       v-if="info?.available && info.suggestions.length > 0"
@@ -219,50 +162,30 @@
     </div>
 
     <template v-if="info?.available">
-      <v-list
-        density="compact"
-        class="py-0 bg-transparent"
-      >
-        <v-list-item
+      <div class="d-flex flex-wrap ga-1">
+        <v-chip
           v-if="info.narrator"
-          title="Narrator"
-          :subtitle="`voiced by ${info.narrator.voice}`"
-        >
-          <template #append>
-            <v-chip
-              size="x-small"
-              rounded
-              label
-              :color="info.narrator.voiceType === 'custom' ? 'primary' : undefined"
-              :text="info.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice'"
-            />
-          </template>
-        </v-list-item>
-
-        <v-list-item
+          rounded
+          label
+          :color="info.narrator.voiceType === 'custom' ? 'primary' : undefined"
+          :variant="info.narrator.voiceType === 'custom' ? 'outlined' : undefined"
+          :title="`Narrator — voiced by ${info.narrator.voice}`"
+          text="Narrator"
+        />
+        <v-chip
           v-for="character in info.characters"
           :key="character.id"
-          :title="character.name"
-          :subtitle="characterSubtitle(character)"
+          rounded
+          label
+          clickable
+          :color="character.voiceType === 'custom' ? 'primary' : undefined"
+          :variant="character.voiceType === 'custom' ? 'outlined' : undefined"
           :class="character.status === 'merged' ? 'text-medium-emphasis' : undefined"
+          :title="`${character.name} — voiced by ${character.voice} · ${character.totalLines} lines`"
+          :text="character.name"
           @click="selected = character"
-        >
-          <template #append>
-            <div class="d-flex align-center ga-2">
-              <span class="text-body-small text-medium-emphasis">
-                {{ character.totalLines }} {{ character.totalLines === 1 ? 'line' : 'lines' }}
-              </span>
-              <v-chip
-                size="x-small"
-                rounded
-                label
-                :color="character.voiceType === 'custom' ? 'primary' : undefined"
-                :text="character.voiceType === 'custom' ? 'Custom voice' : 'Standard voice'"
-              />
-            </div>
-          </template>
-        </v-list-item>
-      </v-list>
+        />
+      </div>
 
       <v-dialog
         :model-value="selected != null"
@@ -293,6 +216,7 @@ import {
   postMergeCharacters,
 } from '@/api/series-characters'
 import type { CharacterJob, SeriesCharacter } from '@/functions/series-characters'
+import { useSelectionStore } from '@/stores/selection'
 
 const props = defineProps<{
   seriesId: string
@@ -304,15 +228,22 @@ const { data: info } = useQuery(() => ({
 }))
 
 const selected = ref<SeriesCharacter | null>(null)
-const showBooks = ref(false)
-const selectedBooks = ref<string[]>([])
 const submitting = ref<string | null>(null)
 const lastError = ref<string | null>(null)
 const jobs = ref<CharacterJob[]>([])
+const nowTs = ref(Date.now())
 
 const activeJob = computed(() =>
   jobs.value.find((j) => j.state === 'queued' || j.state === 'running'),
 )
+
+const elapsedText = computed(() => {
+  const job = activeJob.value
+  if (!job?.createdAt) return ''
+  const secs = Math.max(0, Math.floor((nowTs.value - new Date(job.createdAt).getTime()) / 1000))
+  if (secs < 5) return ''
+  return secs < 60 ? `${secs}s elapsed` : `${Math.floor(secs / 60)}m ${secs % 60}s elapsed`
+})
 
 const markedCount = computed(
   () => info.value?.books.filter((b) => b.reprocessCharacters).length ?? 0,
@@ -340,19 +271,71 @@ function jobLabel(job: CharacterJob): string {
         : 'Working'
 }
 
-function characterSubtitle(character: SeriesCharacter): string {
-  const parts = [`voiced by ${character.voice}`]
-  if (character.status === 'merged') parts.push('merged into another character')
-  else if (character.description) parts.push(character.description)
-  return parts.join(' — ')
+function jobStatusText(job: CharacterJob): string {
+  if (job.state === 'queued') return `${jobLabel(job)} queued`
+  const parts = [jobLabel(job), job.phase ?? 'working']
+  let text = parts.join(' — ')
+  if (job.bookIndex != null && job.bookCount) text += ` (book ${job.bookIndex} of ${job.bookCount})`
+  if (job.detail) text += ` · ${job.detail}`
+  return text
 }
 
-function toggleBook(bookId: string | null | undefined, on: boolean) {
-  if (!bookId) return
-  selectedBooks.value = on
-    ? [...selectedBooks.value, bookId]
-    : selectedBooks.value.filter((id) => id !== bookId)
+// Marking lives in Komga's native selection bar: when books of this series
+// are selected, add character/audiobook reprocessing actions to it.
+const selectionStore = useSelectionStore()
+const MARK_CHARS_TEXT = 'Mark for re-analysis'
+const MARK_AUDIO_TEXT = 'Mark for re-render'
+
+function syncSelectionActions() {
+  const others = selectionStore.contextualActions.filter(
+    (a) => a.text !== MARK_CHARS_TEXT && a.text !== MARK_AUDIO_TEXT,
+  )
+  const selectedIds = [...selectionStore.selection.keys()]
+  const bookIds = selectedIds.filter((id) => info.value?.books.some((b) => b.bookId === id))
+  if (info.value?.available && bookIds.length > 0) {
+    selectionStore.contextualActions = [
+      ...others,
+      {
+        text: MARK_CHARS_TEXT,
+        icon: 'i-mdi:account-search',
+        callback: () => void markSelected(bookIds, { reprocessCharacters: true }),
+      },
+      {
+        text: MARK_AUDIO_TEXT,
+        icon: 'i-mdi:headphones',
+        callback: () => void markSelected(bookIds, { reprocessAudiobook: true }),
+      },
+    ]
+  } else {
+    selectionStore.contextualActions = others
+  }
 }
+
+async function markSelected(
+  bookIds: string[],
+  marks: { reprocessCharacters?: boolean; reprocessAudiobook?: boolean },
+) {
+  try {
+    await postCharacterMarks(props.seriesId, bookIds, marks)
+    await refresh()
+  } catch (e) {
+    lastError.value = e instanceof Error ? e.message : 'Could not update marks'
+  }
+}
+
+watch(
+  () => [...selectionStore.selection.keys()].join(','),
+  () => syncSelectionActions(),
+)
+watch(
+  () => info.value?.available,
+  () => syncSelectionActions(),
+)
+onUnmounted(() => {
+  selectionStore.contextualActions = selectionStore.contextualActions.filter(
+    (a) => a.text !== MARK_CHARS_TEXT && a.text !== MARK_AUDIO_TEXT,
+  )
+})
 
 async function refresh() {
   await queryCache.invalidateQueries({ key: QUERY_KEYS_SERIES_CHARACTERS.bySeriesId(props.seriesId) })
@@ -367,6 +350,7 @@ function dismissError() {
 }
 
 async function pollJobs() {
+  nowTs.value = Date.now()
   try {
     const before = jobs.value
     jobs.value = await fetchCharacterJobs(props.seriesId)
@@ -455,15 +439,6 @@ async function dismissSuggestion(aName: string, bName: string) {
     await refresh()
   } catch (e) {
     lastError.value = e instanceof Error ? e.message : 'Could not dismiss the suggestion'
-  }
-}
-
-async function mark(marks: { reprocessCharacters?: boolean; reprocessAudiobook?: boolean }) {
-  try {
-    await postCharacterMarks(props.seriesId, selectedBooks.value, marks)
-    await refresh()
-  } catch (e) {
-    lastError.value = e instanceof Error ? e.message : 'Could not update marks'
   }
 }
 </script>

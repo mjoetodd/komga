@@ -4,6 +4,7 @@ export interface SeriesCharacterBookStat {
   number?: number | null
   lines: number
   chars: number
+  evidence?: string[]
 }
 
 export interface SeriesCharacter {

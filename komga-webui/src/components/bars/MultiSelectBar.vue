@@ -79,6 +79,24 @@
         </v-tooltip>
       </v-btn>
 
+      <v-btn icon @click="markCharacters" v-if="characterActions && kind === 'books'">
+        <v-tooltip bottom>
+          <template v-slot:activator="{ on }">
+            <v-icon v-on="on">mdi-account-search</v-icon>
+          </template>
+          <span>Mark for character re-analysis</span>
+        </v-tooltip>
+      </v-btn>
+
+      <v-btn icon @click="markAudiobook" v-if="characterActions && kind === 'books'">
+        <v-tooltip bottom>
+          <template v-slot:activator="{ on }">
+            <v-icon v-on="on">mdi-headphones</v-icon>
+          </template>
+          <span>Mark for audiobook re-render</span>
+        </v-tooltip>
+      </v-btn>
+
       <v-btn icon @click="doDelete" v-if="isAdmin">
         <v-tooltip bottom>
           <template v-slot:activator="{ on }">
@@ -122,6 +140,14 @@ export default Vue.extend({
       type: Boolean,
       default: false,
     },
+    /**
+     * Show the character/audiobook reprocessing mark actions (series pages
+     * whose books are managed by the character pipeline).
+     */
+    characterActions: {
+      type: Boolean,
+      default: false,
+    },
   },
   computed: {
     isAdmin (): boolean {
@@ -134,6 +160,12 @@ export default Vue.extend({
     },
     selectAll () {
       this.$emit('select-all')
+    },
+    markCharacters () {
+      this.$emit('mark-characters')
+    },
+    markAudiobook () {
+      this.$emit('mark-audiobook')
     },
     markRead () {
       this.$emit('mark-read')

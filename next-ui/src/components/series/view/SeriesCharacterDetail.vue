@@ -83,19 +83,35 @@
             :title="`Book ${b.number}`"
             :subtitle="`${b.lines} ${b.lines === 1 ? 'line' : 'lines'}`"
             :to="b.bookId ? { name: '/book/[id]', params: { id: b.bookId } } : undefined"
-          />
+          >
+            <div
+              v-for="(ev, i) in b.evidence ?? []"
+              :key="i"
+              class="text-body-small text-medium-emphasis font-italic"
+            >
+              {{ ev }}
+            </div>
+          </v-list-item>
         </v-list>
       </div>
     </v-card-text>
 
     <v-card-text v-if="character.status !== 'merged'">
-      <div class="text-label-medium text-medium-emphasis mb-1">
-        Same person as another character?
-      </div>
-      <div class="text-body-small text-medium-emphasis mb-2">
-        If this character is really someone else in the list, pick that character as the parent —
-        this one becomes its alias, its lines move over, and affected audiobooks are marked for
-        re-rendering.
+      <div class="d-flex align-center ga-1 mb-1">
+        <span class="text-label-medium text-medium-emphasis">Parent character</span>
+        <v-tooltip
+          location="top"
+          text="Same person as another character? Pick that character as the parent — this one becomes its alias, its lines move over, and affected audiobooks are marked for re-rendering."
+        >
+          <template #activator="{ props: tipProps }">
+            <v-icon
+              v-bind="tipProps"
+              icon="i-mdi:information-outline"
+              size="small"
+              class="text-medium-emphasis"
+            />
+          </template>
+        </v-tooltip>
       </div>
       <v-select
         v-model="mergeParentId"

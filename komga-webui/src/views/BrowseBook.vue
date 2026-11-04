@@ -349,7 +349,7 @@
             <v-chip label x-small outlined :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined">{{ castInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
           </div>
           <div v-for="member in castInfo.cast" :key="member.id" class="py-1">
-            {{ member.name }} — voiced by {{ member.voice }}<span v-if="member.description"> — {{ member.description }}</span>
+            <a href="#" @click.prevent="openBookCharacter(member.id)">{{ member.name }}</a> — voiced by {{ member.voice }}<span v-if="member.description"> — {{ member.description }}</span>
             · {{ member.dialogueSegments }} {{ member.dialogueSegments === 1 ? 'line' : 'lines' }}
             <v-chip label x-small outlined :color="member.voiceType === 'custom' ? 'primary' : undefined">{{ member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
           </div>
@@ -368,10 +368,53 @@
             <v-btn small class="me-2" :disabled="bookCharBusy || bookCharState.castState !== 'READY'" @click="bookCharPost('generate-audiobooks')">{{ bookCharState.hasAudiobook ? 'Regenerate audiobook' : 'Generate audiobook' }}</v-btn>
             <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessCharacters', !bookCharState.reprocessCharacters)">{{ bookCharState.reprocessCharacters ? 'Unmark re-analyze' : 'Mark for re-analysis' }}</v-btn>
             <v-btn small text :disabled="bookCharBusy" @click="bookCharMark('reprocessAudiobook', !bookCharState.reprocessAudiobook)">{{ bookCharState.reprocessAudiobook ? 'Unmark re-render' : 'Mark for re-render' }}</v-btn>
-            <span v-if="bookCharMessage" class="ms-2">{{ bookCharMessage }}</span>
+            <span v-if="bookCharJobText" class="ms-2">{{ bookCharJobText }}</span>
+            <span v-else-if="bookCharMessage" class="ms-2">{{ bookCharMessage }}</span>
           </div>
         </v-col>
       </v-row>
+
+      <v-dialog v-model="bookCharDialog" max-width="640">
+        <v-card v-if="bookCharDetail">
+          <v-card-title>{{ bookCharDetail.name }}</v-card-title>
+          <v-card-text>
+            <div>Voiced by <strong>{{ bookCharDetail.voice }}</strong><span v-if="bookCharDetail.firstBook != null"> · first speaks in book {{ bookCharDetail.firstBook }}</span> · {{ bookCharDetail.totalLines }} lines across {{ bookCharDetail.books.length }} books</div>
+            <p v-if="bookCharDetail.description" class="mt-2">{{ bookCharDetail.description }}</p>
+            <div v-if="bookCharDetail.aliases && bookCharDetail.aliases.length > 0" class="mt-2">
+              Also known as:
+              <v-chip v-for="a in bookCharDetail.aliases" :key="a" label small class="me-1">{{ a }}</v-chip>
+            </div>
+            <div v-if="bookCharDetail.sampleLines && bookCharDetail.sampleLines.length > 0" class="mt-2">
+              <div>Sample lines</div>
+              <div v-for="(line, i) in bookCharDetail.sampleLines" :key="i" class="font-italic">“{{ line }}”</div>
+            </div>
+            <div v-if="bookCharDetail.books && bookCharDetail.books.length > 0" class="mt-2">
+              <div>Dialogue by book</div>
+              <div v-for="b in bookCharDetail.books" :key="b.number" class="py-0">
+                Book {{ b.number }} — {{ b.lines }} {{ b.lines === 1 ? 'line' : 'lines' }}
+                <div v-for="(ev, ei) in (b.evidence || [])" :key="ei" class="font-italic text-medium-emphasis ms-2">{{ ev }}</div>
+              </div>
+            </div>
+            <div v-if="bookCharDetail.status !== 'merged'" class="mt-4">
+              <div class="d-flex align-center">
+                <span>Parent character</span>
+                <v-tooltip top>
+                  <template v-slot:activator="{ on }">
+                    <v-icon small class="ms-1" v-on="on">mdi-information-outline</v-icon>
+                  </template>
+                  <span>Same person as another character? Pick the parent — this character becomes its alias and affected audiobooks are marked for re-rendering.</span>
+                </v-tooltip>
+              </div>
+              <v-select v-model="bookCharMergeParent" :items="bookCharMergeCandidates" item-text="name" item-value="id" label="Parent character" clearable dense></v-select>
+            </div>
+          </v-card-text>
+          <v-card-actions>
+            <v-btn v-if="bookCharDetail.status !== 'merged'" color="warning" text :disabled="!bookCharMergeParent || bookCharBusy" @click="bookCharMerge">Merge into parent</v-btn>
+            <v-spacer></v-spacer>
+            <v-btn text @click="bookCharDialog = false">Close</v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <v-row v-if="book.metadata.tags.length > 0" class="align-center text-caption">
         <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">{{ $i18n.t('common.tags') }}</v-col>
@@ -553,6 +596,13 @@ export default Vue.extend({
       bookCharState: null as any,
       bookCharBusy: false,
       bookCharMessage: '',
+      bookCharInfo: null as any,
+      bookCharDialog: false,
+      bookCharDetail: null as any,
+      bookCharMergeParent: null as string | null,
+      bookCharJobText: '',
+      bookCharPollTimer: null as any,
+      bookCharPollSawActive: false,
     }
   },
   async created() {
@@ -567,6 +617,7 @@ export default Vue.extend({
     this.$eventHub.$on(READLIST_DELETED, this.readListChanged)
   },
   beforeDestroy() {
+    this.stopBookCharPoll()
     this.$eventHub.$off(BOOK_CHANGED, this.bookChanged)
     this.$eventHub.$off(BOOK_DELETED, this.bookDeleted)
     this.$eventHub.$off(READPROGRESS_CHANGED, this.readProgressChanged)
@@ -596,6 +647,10 @@ export default Vue.extend({
     },
     isAdmin(): boolean {
       return this.$store.getters.meAdmin
+    },
+    bookCharMergeCandidates(): any[] {
+      if (!this.bookCharInfo || !this.bookCharDetail) return []
+      return (this.bookCharInfo.characters || []).filter((c: any) => c.id !== this.bookCharDetail.id && c.status !== 'merged')
     },
     unavailable(): boolean {
       return this.book.deleted || this.$store.getters.getLibraryById(this.book.libraryId).unavailable
@@ -700,9 +755,79 @@ export default Vue.extend({
         })
         if (!response.ok) return
         const info = await response.json()
+        this.bookCharInfo = info
         this.bookCharState = (info.books || []).find((b: any) => b.bookId === this.bookId) || null
+        this.startBookCharPoll()
       } catch (e) {
         this.bookCharState = null
+      }
+    },
+    openBookCharacter(characterId: string) {
+      const character = (this.bookCharInfo?.characters || []).find((c: any) => c.id === characterId)
+      if (!character) return
+      this.bookCharDetail = character
+      this.bookCharMergeParent = null
+      this.bookCharDialog = true
+    },
+    async bookCharMerge() {
+      if (!this.bookCharDetail || !this.bookCharMergeParent) return
+      this.bookCharBusy = true
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/merge`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {Accept: 'application/json', 'Content-Type': 'application/json'},
+          body: JSON.stringify({parentId: this.bookCharMergeParent, childId: this.bookCharDetail.id}),
+        })
+        if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`)
+        this.bookCharDialog = false
+        this.bookCharMessage = 'Merge queued.'
+        this.startBookCharPoll()
+      } catch (e: any) {
+        this.bookCharMessage = e.message || 'Request failed'
+      } finally {
+        this.bookCharBusy = false
+      }
+    },
+    async bookCharPollJobs() {
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/jobs`, {
+          credentials: 'include',
+          headers: {Accept: 'application/json'},
+        })
+        if (!response.ok) return
+        const jobs = await response.json()
+        const num = (this.book as any).number
+        const active = (jobs || []).find((j: any) => (j.state === 'queued' || j.state === 'running') && num != null && j.detail && j.detail.includes(`#${num}`))
+        if (active) {
+          this.bookCharPollSawActive = true
+          const label = active.type === 'analyze_series' ? 'Analyzing characters' : active.type === 'generate_audiobooks' ? 'Generating audiobook' : 'Working'
+          this.bookCharJobText = active.state === 'queued' ? `${label} — queued…` : `${label} — ${active.phase || 'working'} · ${active.detail}`
+        } else if (this.bookCharPollSawActive) {
+          this.bookCharJobText = ''
+          this.bookCharPollSawActive = false
+          const failed = (jobs || []).find((j: any) => j.state === 'error')
+          if (failed && failed.error) this.bookCharMessage = failed.error
+          await this.loadBookCharState()
+          if (this.book.cast) this.loadCast(this.bookId)
+          this.stopBookCharPoll()
+        } else {
+          this.stopBookCharPoll()
+        }
+      } catch (e) {
+        // jobs endpoint unavailable — stay silent
+      }
+    },
+    startBookCharPoll() {
+      if (this.bookCharPollTimer) return
+      this.bookCharPollJobs()
+      this.bookCharPollTimer = setInterval(() => this.bookCharPollJobs(), 4000)
+      setTimeout(() => this.stopBookCharPoll(), 15 * 60 * 1000)
+    },
+    stopBookCharPoll() {
+      if (this.bookCharPollTimer) {
+        clearInterval(this.bookCharPollTimer)
+        this.bookCharPollTimer = null
       }
     },
     async bookCharPost(path: string) {
@@ -716,7 +841,8 @@ export default Vue.extend({
           body: JSON.stringify({bookIds: [this.bookId]}),
         })
         if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`)
-        this.bookCharMessage = 'Queued — watch progress on the series page.'
+        this.bookCharMessage = 'Queued.'
+        this.startBookCharPoll()
       } catch (e: any) {
         this.bookCharMessage = e.message || 'Request failed'
       } finally {
