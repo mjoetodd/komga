@@ -182,7 +182,12 @@
 
 <script setup lang="ts">
 import { bookPosterUrl } from '@/api/images'
-import { audiobookFileUrl, fetchProgression, saveProgression } from '@/api/audiobooks'
+import {
+  audiobookFileUrl,
+  fetchPositions,
+  fetchProgression,
+  saveProgression,
+} from '@/api/audiobooks'
 import type { BookDto } from '@/generated/openapi'
 import {
   type AudiobookInfo,
@@ -211,6 +216,7 @@ const sleepMinutes = ref<number | null>(null)
 let sleepTimeout: ReturnType<typeof setTimeout> | undefined
 let lastSavedAt = 0
 let lastServerSyncMs = 0
+let positionsCache: Awaited<ReturnType<typeof fetchPositions>> = []
 let metadataLoaded = false
 let progressionSettled = false
 let startResolved = false
@@ -315,8 +321,13 @@ function syncServerProgress(force = false) {
   const now = Date.now()
   if (!force && now - lastServerSyncMs < 20_000) return
   lastServerSyncMs = now
-  const locator = timeToLocator(props.audiobook.segments, currentTime.value)
-  if (locator) void saveProgression(props.book.id, locator).catch(() => {})
+  const locator = timeToLocator(props.audiobook.segments, currentTime.value, positionsCache)
+  if (!locator) return
+  void saveProgression(props.book.id, locator).then((ok) => {
+    // visible in dev tools when the sync breaks again; the local resume
+    // still covers the user in the meantime
+    if (!ok) console.warn('[audiobook] reading-progression sync failed')
+  })
 }
 
 /**
@@ -423,6 +434,9 @@ function updateMediaSessionPosition() {
 }
 
 onMounted(() => {
+  void fetchPositions(props.book.id).then((positions) => {
+    positionsCache = positions
+  })
   void fetchProgression(props.book.id)
     .then((progression) => {
       if (progression?.locator) {

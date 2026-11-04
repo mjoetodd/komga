@@ -132,3 +132,41 @@ describe('timeToLocator / locatorToTime', () => {
     ).toBeUndefined()
   })
 })
+
+describe('timeToLocator with positions', () => {
+  const positions = [
+    {
+      href: 'EPUB/a.xhtml',
+      type: 'application/xhtml+xml',
+      locations: { progression: 0.25, totalProgression: 0.05 },
+    },
+    {
+      href: 'EPUB/a.xhtml',
+      type: 'application/xhtml+xml',
+      locations: { progression: 0.75, totalProgression: 0.35 },
+    },
+    {
+      href: 'EPUB/b.xhtml',
+      type: 'application/xhtml+xml',
+      locations: { progression: 0.5, totalProgression: 0.75 },
+    },
+  ]
+
+  test('rewrites the href to the media-file form and snaps progression down', () => {
+    // t=15 -> segment 1 of a.xhtml, raw progression 0.5 -> snaps to 0.25
+    expect(timeToLocator(book, 15, positions)).toEqual({
+      href: 'EPUB/a.xhtml',
+      type: 'application/xhtml+xml',
+      locations: { fragments: [], progression: 0.25, totalProgression: 0.05 },
+    })
+    // t=25 -> segment 2 of b.xhtml, raw progression 0 -> first b position
+    expect(timeToLocator(book, 25, positions)?.locations.progression).toBe(0.5)
+    expect(timeToLocator(book, 25, positions)?.href).toBe('EPUB/b.xhtml')
+  })
+
+  test('falls back to the raw locator when nothing matches', () => {
+    const locator = timeToLocator(book, 15, [positions[2]!])
+    expect(locator?.href).toBe('a.xhtml')
+    expect(locator?.locations.progression).toBe(0.5)
+  })
+})

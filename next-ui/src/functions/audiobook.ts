@@ -113,10 +113,57 @@ function findResource(resources: ResourceChars[], href: string): ResourceChars |
   )
 }
 
+export interface AudiobookPosition {
+  href: string
+  type?: string
+  locations?: { progression?: number | null; totalProgression?: number | null }
+}
+
+function sameResource(a: string, b: string): boolean {
+  const ka = hrefKey(a)
+  const kb = hrefKey(b)
+  return ka === kb || ka.endsWith(`/${kb}`) || kb.endsWith(`/${ka}`)
+}
+
+/**
+ * Snap a locator to the book's Readium positions grid. The server only
+ * accepts progression writes whose href is one of the book's media files
+ * (the sync map's bare spine names are not - Komga prefixes them, e.g.
+ * "EPUB/chapter_00001.xhtml") and resolves progression by matching the
+ * stored positions, so writing a position's own href and progression
+ * verbatim is the reliable path.
+ */
+export function snapLocatorToPositions(
+  locator: AudiobookLocator,
+  positions: AudiobookPosition[],
+): AudiobookLocator {
+  const progression = locator.locations.progression
+  if (progression === undefined) return locator
+  const matched = positions
+    .filter((p) => sameResource(p.href, locator.href) && p.locations?.progression != null)
+    .sort((a, b) => (a.locations!.progression ?? 0) - (b.locations!.progression ?? 0))
+  if (!matched.length) return locator
+  let chosen = matched[0]!
+  for (const position of matched) {
+    if ((position.locations!.progression ?? 0) <= progression) chosen = position
+    else break
+  }
+  return {
+    href: chosen.href,
+    type: chosen.type ?? locator.type,
+    locations: {
+      fragments: [],
+      progression: chosen.locations!.progression ?? progression,
+      totalProgression: chosen.locations!.totalProgression ?? locator.locations.totalProgression,
+    },
+  }
+}
+
 /** The reader locator corresponding to an audio time, at segment granularity. */
 export function timeToLocator(
   segments: AudiobookSegment[],
   time: number,
+  positions?: AudiobookPosition[],
 ): AudiobookLocator | undefined {
   const index = findSegmentIndex(segments, time)
   const segment = segments[index < 0 ? 0 : index]
@@ -124,7 +171,7 @@ export function timeToLocator(
   const { resources, totalChars } = resourceChars(segments)
   const resource = findResource(resources, segment.href)
   if (!resource || resource.chars <= 0 || totalChars <= 0) return undefined
-  return {
+  const locator: AudiobookLocator = {
     href: segment.href,
     type: 'application/xhtml+xml',
     locations: {
@@ -133,6 +180,7 @@ export function timeToLocator(
       totalProgression: (resource.offset + segment.charStart) / totalChars,
     },
   }
+  return positions?.length ? snapLocatorToPositions(locator, positions) : locator
 }
 
 /** The audio time corresponding to a reader locator, or undefined if it cannot be mapped. */
