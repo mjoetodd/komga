@@ -209,6 +209,17 @@
                   </v-btn>
                 </v-col>
 
+                <v-col cols="auto" v-if="book.audiobook">
+                  <v-btn color="primary"
+                         small
+                         title="Listen to the audiobook"
+                         :href="`/next/listen/${bookId}`"
+                  >
+                    <v-icon left small>mdi-headphones</v-icon>
+                    Listen
+                  </v-btn>
+                </v-col>
+
                 <v-col cols="auto">
                   <v-btn small
                          :title="$t('browse_book.read_incognito')"
@@ -252,6 +263,17 @@
             >
               <v-icon left small>mdi-book-open-page-variant</v-icon>
               {{ $t('common.read') }}
+            </v-btn>
+          </v-col>
+
+          <v-col cols="auto" v-if="book.audiobook">
+            <v-btn color="primary"
+                   small
+                   title="Listen to the audiobook"
+                   :href="`/next/listen/${bookId}`"
+            >
+              <v-icon left small>mdi-headphones</v-icon>
+              Listen
             </v-btn>
           </v-col>
 
@@ -316,6 +338,21 @@
             >{{ name }}
             </v-chip>
           </vue-horizontal>
+        </v-col>
+      </v-row>
+
+      <v-row v-if="castInfo" class="text-caption">
+        <v-col cols="4" sm="3" md="2" xl="1" class="py-1 text-uppercase">Audiobook cast</v-col>
+        <v-col cols="8" sm="9" md="10" xl="11" class="py-1">
+          <div v-if="castInfo.narrator" class="py-1">
+            Narrator — voiced by {{ castInfo.narrator.voice }}
+            <v-chip label x-small outlined :color="castInfo.narrator.voiceType === 'custom' ? 'primary' : undefined">{{ castInfo.narrator.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
+          </div>
+          <div v-for="member in castInfo.cast" :key="member.id" class="py-1">
+            {{ member.name }} — voiced by {{ member.voice }}<span v-if="member.description"> — {{ member.description }}</span>
+            · {{ member.dialogueSegments }} {{ member.dialogueSegments === 1 ? 'line' : 'lines' }}
+            <v-chip label x-small outlined :color="member.voiceType === 'custom' ? 'primary' : undefined">{{ member.voiceType === 'custom' ? 'Custom voice' : 'Standard voice' }}</v-chip>
+          </div>
         </v-col>
       </v-row>
 
@@ -453,7 +490,7 @@ import {groupAuthorsByRole} from '@/functions/authors'
 import {getBookFormatFromMedia, getBookReadRouteFromMedia} from '@/functions/book-format'
 import {getPagesLeft, getReadProgress, getReadProgressPercentage} from '@/functions/book-progress'
 import {getBookTitleCompact} from '@/functions/book-title'
-import {bookFileUrl, bookThumbnailUrl} from '@/functions/urls'
+import urls, {bookFileUrl, bookThumbnailUrl} from '@/functions/urls'
 import {MediaStatus, ReadStatus} from '@/types/enum-books'
 import {
   BOOK_CHANGED,
@@ -495,6 +532,7 @@ export default Vue.extend({
       siblingNext: {} as BookDto,
       readLists: [] as ReadListDto[],
       readMore: false,
+      castInfo: null as any,
     }
   },
   async created() {
@@ -632,8 +670,21 @@ export default Vue.extend({
     readProgressChanged(event: ReadProgressSseDto) {
       if (event.bookId === this.bookId) this.loadBook(this.bookId)
     },
+    async loadCast(bookId: string) {
+      try {
+        const response = await fetch(`${urls.originNoSlash}/api/v1/books/${bookId}/cast`, {
+          credentials: 'include',
+          headers: {Accept: 'application/json'},
+        })
+        if (response.ok) this.castInfo = await response.json()
+      } catch (e) {
+        // cast display is best-effort only
+      }
+    },
     async loadBook(bookId: string) {
+      this.castInfo = null
       this.book = await this.$komgaBooks.getBook(bookId)
+      if (this.book.cast) this.loadCast(bookId)
       // for the cases where we can't change the origin target route because we don't have the full BookDto
       if (this.book.oneshot) await this.$router.replace({
         name: 'browse-oneshot',

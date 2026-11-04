@@ -19,6 +19,7 @@ export interface BookDto {
   deleted: boolean,
   oneshot: boolean,
   audiobook: boolean,
+  cast: boolean,
 
   // custom fields
   context: Context
