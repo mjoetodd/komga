@@ -52,13 +52,13 @@
     <v-dialog
       :model-value="selectedCharacter != null"
       max-width="640"
-      @update:model-value="(v: boolean) => { if (!v) selectedCharacter = null }"
+      @update:model-value="(v: boolean) => { if (!v) wantedCharacterId = null }"
     >
       <SeriesViewSeriesCharacterDetail
         v-if="selectedCharacter && seriesInfo"
         :character="selectedCharacter"
         :all-characters="seriesInfo.characters"
-        @close="selectedCharacter = null"
+        @close="wantedCharacterId = null"
         @merge="onMerge"
       />
     </v-dialog>
