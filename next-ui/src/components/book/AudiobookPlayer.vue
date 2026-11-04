@@ -182,9 +182,15 @@
 
 <script setup lang="ts">
 import { bookPosterUrl } from '@/api/images'
-import { audiobookFileUrl } from '@/api/audiobooks'
+import { audiobookFileUrl, fetchProgression, saveProgression } from '@/api/audiobooks'
 import type { BookDto } from '@/generated/openapi'
-import { type AudiobookInfo, findSegmentIndex, formatPlaybackTime } from '@/functions/audiobook'
+import {
+  type AudiobookInfo,
+  findSegmentIndex,
+  formatPlaybackTime,
+  locatorToTime,
+  timeToLocator,
+} from '@/functions/audiobook'
 
 const props = defineProps<{
   book: BookDto
@@ -204,6 +210,11 @@ const follow = ref(true)
 const sleepMinutes = ref<number | null>(null)
 let sleepTimeout: ReturnType<typeof setTimeout> | undefined
 let lastSavedAt = 0
+let lastServerSyncMs = 0
+let metadataLoaded = false
+let progressionSettled = false
+let startResolved = false
+let serverStart: { t: number; ts: number } | undefined
 
 const rateOptions = [0.75, 1, 1.25, 1.5, 1.75, 2]
 const sleepOptions = [5, 10, 15, 20, 30, 45, 60]
@@ -274,9 +285,57 @@ function setSleepTimer(minutes: number | null) {
 function savePosition() {
   lastSavedAt = currentTime.value
   try {
-    localStorage.setItem(storageKey.value, String(Math.floor(currentTime.value)))
+    localStorage.setItem(
+      storageKey.value,
+      JSON.stringify({ t: Math.floor(currentTime.value), ts: Date.now() }),
+    )
   } catch {
     // storage unavailable (private mode etc.): resume is best-effort
+  }
+}
+
+function readLocalPosition(): { t: number; ts: number } | undefined {
+  try {
+    const raw = localStorage.getItem(storageKey.value)
+    if (!raw) return undefined
+    // legacy entries are a plain seconds number with no timestamp
+    if (!raw.startsWith('{')) {
+      const t = Number(raw)
+      return Number.isFinite(t) ? { t, ts: 0 } : undefined
+    }
+    const parsed = JSON.parse(raw) as { t?: number; ts?: number }
+    return typeof parsed.t === 'number' ? { t: parsed.t, ts: parsed.ts ?? 0 } : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Write the listening position back as reading progression for the EPUB reader. */
+function syncServerProgress(force = false) {
+  const now = Date.now()
+  if (!force && now - lastServerSyncMs < 20_000) return
+  lastServerSyncMs = now
+  const locator = timeToLocator(props.audiobook.segments, currentTime.value)
+  if (locator) void saveProgression(props.book.id, locator).catch(() => {})
+}
+
+/**
+ * Resume where the listener or reader left off: the local position and the
+ * server-side reading progression are both candidates; the fresher one wins.
+ */
+function resolveStartPosition() {
+  if (startResolved || !metadataLoaded || !progressionSettled) return
+  startResolved = true
+  const audio = audioEl.value
+  if (!audio) return
+  const local = readLocalPosition()
+  const candidates = [local, serverStart].filter((c) => c !== undefined)
+  if (!candidates.length) return
+  const best = candidates.reduce((a, b) => (b.ts > a.ts ? b : a))
+  if (best.t > 5 && best.t < (mediaDuration.value || Infinity) - 15) {
+    audio.currentTime = best.t
+    currentTime.value = best.t
+    displayTime.value = best.t
   }
 }
 
@@ -285,17 +344,8 @@ function onLoadedMetadata() {
   if (!audio) return
   mediaDuration.value = Number.isFinite(audio.duration) ? audio.duration : 0
   audio.playbackRate = playbackRate.value
-  // resume where the listener left off, unless they were basically done
-  try {
-    const saved = Number(localStorage.getItem(storageKey.value))
-    if (saved > 5 && saved < (mediaDuration.value || Infinity) - 15) {
-      audio.currentTime = saved
-      currentTime.value = saved
-      displayTime.value = saved
-    }
-  } catch {
-    // ignore: start from the beginning
-  }
+  metadataLoaded = true
+  resolveStartPosition()
   setupMediaSession()
 }
 
@@ -305,17 +355,20 @@ function onTimeUpdate() {
   currentTime.value = audio.currentTime
   if (!scrubbing.value) displayTime.value = audio.currentTime
   if (Math.abs(audio.currentTime - lastSavedAt) > 5) savePosition()
+  syncServerProgress()
   updateMediaSessionPosition()
 }
 
 function onPause() {
   isPlaying.value = false
   savePosition()
+  syncServerProgress(true)
 }
 
 function onEnded() {
   isPlaying.value = false
   setSleepTimer(null)
+  syncServerProgress(true)
   try {
     localStorage.removeItem(storageKey.value)
   } catch {
@@ -369,8 +422,29 @@ function updateMediaSessionPosition() {
   }
 }
 
+onMounted(() => {
+  void fetchProgression(props.book.id)
+    .then((progression) => {
+      if (progression?.locator) {
+        const t = locatorToTime(props.audiobook.segments, progression.locator)
+        if (t !== undefined) {
+          serverStart = {
+            t,
+            ts: progression.modified ? new Date(progression.modified).getTime() : 0,
+          }
+        }
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      progressionSettled = true
+      resolveStartPosition()
+    })
+})
+
 onBeforeUnmount(() => {
   savePosition()
+  syncServerProgress(true)
   if (sleepTimeout) clearTimeout(sleepTimeout)
   if ('mediaSession' in navigator) {
     try {

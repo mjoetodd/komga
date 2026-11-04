@@ -47,6 +47,127 @@ export function findSegmentIndex(segments: AudiobookSegment[], time: number): nu
   return result
 }
 
+/**
+ * Position sync with the EPUB reader. Komga stores reading progression as a
+ * Readium locator (href + progression within that resource + total
+ * progression across the book); the sync map's per-segment href and
+ * character ranges are the bridge between that and audio time. Character
+ * totals are derived from the segments themselves (they tile the narrated
+ * resources), so conversions are approximate - within a paragraph or so -
+ * but round-trip consistently.
+ */
+export interface AudiobookLocator {
+  href: string
+  type: string
+  locations: {
+    fragments: string[]
+    progression?: number
+    totalProgression?: number
+  }
+}
+
+interface ResourceChars {
+  href: string
+  chars: number
+  offset: number
+}
+
+function hrefKey(href: string): string {
+  let key = href
+  try {
+    key = decodeURIComponent(href)
+  } catch {
+    // keep the raw href
+  }
+  return key.replace(/^\/+/, '')
+}
+
+function resourceChars(segments: AudiobookSegment[]): {
+  resources: ResourceChars[]
+  totalChars: number
+} {
+  const byKey = new Map<string, ResourceChars>()
+  for (const segment of segments) {
+    const key = hrefKey(segment.href)
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.chars = Math.max(existing.chars, segment.charEnd)
+    } else {
+      byKey.set(key, { href: segment.href, chars: segment.charEnd, offset: 0 })
+    }
+  }
+  const resources = [...byKey.values()]
+  let offset = 0
+  for (const resource of resources) {
+    resource.offset = offset
+    offset += resource.chars
+  }
+  return { resources, totalChars: offset }
+}
+
+function findResource(resources: ResourceChars[], href: string): ResourceChars | undefined {
+  const key = hrefKey(href)
+  return (
+    resources.find((r) => hrefKey(r.href) === key) ??
+    resources.find((r) => hrefKey(r.href).endsWith(key) || key.endsWith(hrefKey(r.href)))
+  )
+}
+
+/** The reader locator corresponding to an audio time, at segment granularity. */
+export function timeToLocator(
+  segments: AudiobookSegment[],
+  time: number,
+): AudiobookLocator | undefined {
+  const index = findSegmentIndex(segments, time)
+  const segment = segments[index < 0 ? 0 : index]
+  if (!segment) return undefined
+  const { resources, totalChars } = resourceChars(segments)
+  const resource = findResource(resources, segment.href)
+  if (!resource || resource.chars <= 0 || totalChars <= 0) return undefined
+  return {
+    href: segment.href,
+    type: 'application/xhtml+xml',
+    locations: {
+      fragments: [],
+      progression: segment.charStart / resource.chars,
+      totalProgression: (resource.offset + segment.charStart) / totalChars,
+    },
+  }
+}
+
+/** The audio time corresponding to a reader locator, or undefined if it cannot be mapped. */
+export function locatorToTime(
+  segments: AudiobookSegment[],
+  locator: {
+    href: string
+    type?: string
+    locations?: {
+      fragments?: string[]
+      progression?: number | null
+      totalProgression?: number | null
+    }
+  },
+): number | undefined {
+  if (!segments.length) return undefined
+  const { resources, totalChars } = resourceChars(segments)
+  let charPos: number | undefined
+  const resource = findResource(resources, locator.href)
+  if (resource && locator.locations?.progression != null) {
+    charPos = resource.offset + locator.locations.progression * resource.chars
+  } else if (locator.locations?.totalProgression != null && totalChars > 0) {
+    charPos = locator.locations.totalProgression * totalChars
+  }
+  if (charPos === undefined) return undefined
+  for (const segment of segments) {
+    const res = findResource(resources, segment.href)
+    if (!res) continue
+    const start = res.offset + segment.charStart
+    const end = res.offset + segment.charEnd
+    if (charPos >= start && charPos < end) return segment.start
+  }
+  return segments[segments.length - 1]?.start
+}
+
 /** Playback position as m:ss, or h:mm:ss past an hour. */
 export function formatPlaybackTime(seconds: number): string {
   const total = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0))
