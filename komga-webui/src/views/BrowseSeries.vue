@@ -302,7 +302,7 @@
           <div v-else class="py-1">No character analysis yet for this series.</div>
 
           <div class="py-1">
-            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charactersInfo.books.some((b: any) => b.reprocessCharacters))" @click="charAnalyze">Analyze characters</v-btn>
+            <v-btn small class="me-2" :disabled="charBusy || (charactersInfo.needsAnalysisCount === 0 && !charAnyMarked)" @click="charAnalyze">Analyze characters</v-btn>
             <v-btn small class="me-2" :disabled="charBusy || !charactersInfo.canGenerateAllAudiobooks" @click="charGenerate">Generate all audiobooks</v-btn>
             <v-btn small text @click="loadCharacters(seriesId)">Refresh</v-btn>
             <span v-if="charMessage" class="ms-2">{{ charMessage }}</span>
@@ -363,7 +363,7 @@
             </div>
             <div v-if="charDetail.status !== 'merged'" class="mt-4">
               <div>Same person as another character? Pick the parent — this character becomes its alias and affected audiobooks are marked for re-rendering.</div>
-              <v-select v-model="charMergeParent" :items="charactersInfo.characters.filter((c: any) => c.id !== charDetail.id && c.status !== 'merged')" item-text="name" item-value="id" label="Parent character" clearable dense></v-select>
+              <v-select v-model="charMergeParent" :items="charMergeCandidates" item-text="name" item-value="id" label="Parent character" clearable dense></v-select>
             </div>
           </v-card-text>
           <v-card-actions>
@@ -733,6 +733,13 @@ export default Vue.extend({
     }
   },
   computed: {
+    charAnyMarked(): boolean {
+      return !!this.charactersInfo && (this.charactersInfo.books || []).some((b: any) => b.reprocessCharacters)
+    },
+    charMergeCandidates(): any[] {
+      if (!this.charactersInfo || !this.charDetail) return []
+      return (this.charactersInfo.characters || []).filter((c: any) => c.id !== this.charDetail.id && c.status !== 'merged')
+    },
     itemContext(): ItemContext[] {
       if (this.sortActive.key === 'metadata.releaseDate') return [ItemContext.RELEASE_DATE]
       if (this.sortActive.key === 'createdDate') return [ItemContext.DATE_ADDED]
