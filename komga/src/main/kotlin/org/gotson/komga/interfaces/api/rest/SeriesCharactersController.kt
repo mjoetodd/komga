@@ -195,7 +195,11 @@ class SeriesCharactersController(
       val f = book?.let { flags[it.id] }
       CharacterBookStateDto(
         bookId = book?.id,
-        number = node.path("number").takeIf { it.isNumber }?.asInt() ?: book?.number,
+        // Komga's series position is the canonical book number for job
+        // submission and UI job matching; the export's number is the
+        // pipeline's file/chapter number and must not override it, or
+        // book pages look for jobs under a number nothing submitted.
+        number = book?.number ?: node.path("number").takeIf { it.isNumber }?.asInt(),
         file = file,
         castState = node.path("castState").takeIf { it.isTextual }?.asText() ?: "NONE",
         hasAudiobook = node.path("hasAudiobook").asBoolean(false),
