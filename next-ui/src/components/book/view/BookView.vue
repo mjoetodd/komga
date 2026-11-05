@@ -355,7 +355,7 @@ import { useQuery } from '@pinia/colada'
 import { bookReadListsQuery } from '@/colada/readlists'
 import type { Container } from '@/components/ContainerChip.vue'
 import { seriesCollectionsQuery } from '@/colada/collections'
-import { useBrowsingContext } from '@/composables/browsingContext'
+import { useBrowsingContextFromRouteQuery } from '@/composables/browsingContext'
 import {
   filterBrowsingContext,
   formatBrowsingContextAsQueryParam,
@@ -395,7 +395,7 @@ const { isDeleted, format } = useBook(() => props.book)
 // up on the next OpenAPI regeneration
 const hasCast = computed(() => (props.book as BookDto & { cast?: boolean }).cast === true)
 
-const { context } = useBrowsingContext()
+const { context } = useBrowsingContextFromRouteQuery()
 const popped = computed(() => popBrowsingContext(context.value))
 
 // first valid context for oneshot filter navigation

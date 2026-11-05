@@ -63,7 +63,7 @@ const prominent = [
   ActionName.OpenReaderIncognito,
   ActionName.MarkRead,
   ActionName.MarkUnread,
-  ActionName.EditBook,
+  ActionName.EditEntity,
 ] as ActionName[]
 const exclude = [...prominent, ActionName.OpenReader]
 
