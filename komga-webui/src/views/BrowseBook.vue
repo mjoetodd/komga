@@ -821,6 +821,25 @@ export default Vue.extend({
       else if (job.detail) text += ` — ${String(job.detail).replace(/^book /, '')}`
       return text
     },
+    // The error worth showing from a newest-first job list: the newest
+    // errored job for this scope, unless a job in the same scope completed
+    // after it finished — a stale error must not outlive a later success.
+    // num narrows the scope to this book; null would mean the whole series.
+    charDisplayError(jobs: any[], num: any): any {
+      const inScope = (j: any) => {
+        if (num == null) return true
+        if (j.bookNumbers && j.bookNumbers.length > 0) return j.bookNumbers.includes(num)
+        return !!(j.detail && j.detail.includes(`#${num}`))
+      }
+      const time = (j: any) => {
+        const t = j.finishedAt || j.createdAt
+        return t ? new Date(t).getTime() : 0
+      }
+      const failed = (jobs || []).find((j: any) => j.state === 'error' && j.error && inScope(j))
+      if (!failed) return undefined
+      const superseded = (jobs || []).some((j: any) => j.state === 'done' && inScope(j) && time(j) > time(failed))
+      return superseded ? undefined : failed
+    },
     async bookCharPollJobs() {
       try {
         const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.book.seriesId}/characters/jobs`, {
@@ -842,7 +861,7 @@ export default Vue.extend({
         } else if (this.bookCharPollSawActive) {
           this.bookCharJob = null
           this.bookCharPollSawActive = false
-          const failed = (jobs || []).find((j: any) => j.state === 'error')
+          const failed = this.charDisplayError(jobs, num)
           if (failed && failed.error) this.bookCharMessage = failed.error
           await this.loadBookCharState()
           if (this.book.cast) this.loadCast(this.bookId)

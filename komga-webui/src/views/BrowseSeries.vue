@@ -1194,6 +1194,19 @@ export default Vue.extend({
       else if (job.detail) text += ` — ${String(job.detail).replace(/^book /, '')}`
       return text
     },
+    // The error worth showing from a newest-first job list: the newest
+    // errored job for the series, unless a job completed after it
+    // finished — a stale error must not outlive a later success.
+    charDisplayError(jobs: any[]): any {
+      const time = (j: any) => {
+        const t = j.finishedAt || j.createdAt
+        return t ? new Date(t).getTime() : 0
+      }
+      const failed = (jobs || []).find((j: any) => j.state === 'error' && j.error)
+      if (!failed) return undefined
+      const superseded = (jobs || []).some((j: any) => j.state === 'done' && time(j) > time(failed))
+      return superseded ? undefined : failed
+    },
     async charPollJobs() {
       try {
         const response = await fetch(`${urls.originNoSlash}/api/v1/series/${this.seriesId}/characters/jobs`, {
@@ -1208,7 +1221,7 @@ export default Vue.extend({
           this.charPollSawActive = true
         } else if (this.charPollSawActive) {
           this.charPollSawActive = false
-          const failed = (jobs || []).find((j: any) => j.state === 'error')
+          const failed = this.charDisplayError(jobs)
           if (failed && failed.error) this.charMessage = failed.error
           await this.loadCharacters(this.seriesId)
           this.stopCharPoll()

@@ -192,6 +192,7 @@ import {
   postMergeCharacters,
 } from '@/api/series-characters'
 import {
+  displayJobError,
   jobButtonText,
   jobPhaseLabel,
   type CharacterJob,
@@ -315,7 +316,7 @@ async function refresh() {
 const dismissedErrorJobId = ref<string | null>(null)
 
 function dismissError() {
-  const failed = jobs.value.find((j) => j.state === 'error')
+  const failed = displayJobError(jobs.value)
   if (failed) dismissedErrorJobId.value = failed.id
   lastError.value = null
 }
@@ -327,20 +328,20 @@ async function pollJobs() {
     const wasActive = before.some((j) => j.state === 'queued' || j.state === 'running')
     const nowActive = jobs.value.some((j) => j.state === 'queued' || j.state === 'running')
     if (wasActive && !nowActive) {
-      const failed = jobs.value.find((j) => j.state === 'error')
+      const failed = displayJobError(jobs.value)
       if (failed?.error) lastError.value = failed.error
       await refresh()
     } else if (!nowActive && !lastError.value) {
       // surface a recent failure even if the job finished before this page opened
-      const failed = jobs.value.find(
-        (j) =>
-          j.state === 'error' &&
-          j.error &&
-          j.id !== dismissedErrorJobId.value &&
-          j.createdAt != null &&
-          Date.now() - new Date(j.createdAt).getTime() < 30 * 60 * 1000,
-      )
-      if (failed?.error) lastError.value = failed.error
+      const failed = displayJobError(jobs.value)
+      if (
+        failed?.error &&
+        failed.id !== dismissedErrorJobId.value &&
+        failed.createdAt != null &&
+        Date.now() - new Date(failed.createdAt).getTime() < 30 * 60 * 1000
+      ) {
+        lastError.value = failed.error
+      }
     }
   } catch {
     // jobs endpoint unavailable (worker not connected yet) — stay silent

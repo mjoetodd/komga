@@ -75,7 +75,32 @@ export interface CharacterJob {
   detail?: string | null
   error?: string | null
   createdAt?: string | null
+  finishedAt?: string | null
   bookNumbers?: number[]
+}
+
+function jobTime(job: CharacterJob): number {
+  const t = job.finishedAt ?? job.createdAt
+  return t ? new Date(t).getTime() : 0
+}
+
+/**
+ * The error a page should surface from a newest-first job list: the newest
+ * errored job in scope, unless a job in the same scope completed after it
+ * finished — a stale error must not outlive a later success. `scope`
+ * narrows both sides to one book (book pages); omit it for series scope.
+ * Scopes with no completions keep the plain newest-error behavior.
+ */
+export function displayJobError(
+  jobs: CharacterJob[],
+  scope?: (job: CharacterJob) => boolean,
+): CharacterJob | undefined {
+  const inScope = (j: CharacterJob) => !scope || scope(j)
+  const failed = jobs.find((j) => j.state === 'error' && j.error && inScope(j))
+  if (!failed) return undefined
+  const failedAt = jobTime(failed)
+  const superseded = jobs.some((j) => j.state === 'done' && inScope(j) && jobTime(j) > failedAt)
+  return superseded ? undefined : failed
 }
 
 /** Friendly phase names for button status text. */

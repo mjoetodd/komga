@@ -107,7 +107,11 @@ import {
   postCharacterMarks,
   postGenerateAudiobooks,
 } from '@/api/series-characters'
-import { jobButtonText, type CharacterJob } from '@/functions/series-characters'
+import {
+  displayJobError,
+  jobButtonText,
+  type CharacterJob,
+} from '@/functions/series-characters'
 
 const props = defineProps<{
   bookId: string
@@ -133,14 +137,18 @@ const jobs = ref<CharacterJob[]>([])
 // (matched by the job's book list) drives both buttons' text and disabled
 // state, derived from the jobs endpoint on every poll — so a refresh or a
 // return visit always shows the true current state.
-const bookJob = computed(() => {
+function matchesBook(j: CharacterJob): boolean {
   const num = state.value?.number
+  if (num != null && j.bookNumbers && j.bookNumbers.length > 0) {
+    return j.bookNumbers.includes(num)
+  }
+  return num != null && (j.detail?.includes(`#${num}`) ?? false)
+}
+
+const bookJob = computed(() => {
   return jobs.value.find((j) => {
     if (j.state !== 'queued' && j.state !== 'running') return false
-    if (num != null && j.bookNumbers && j.bookNumbers.length > 0) {
-      return j.bookNumbers.includes(num)
-    }
-    return num != null && (j.detail?.includes(`#${num}`) ?? false)
+    return matchesBook(j)
   })
 })
 
@@ -169,7 +177,7 @@ async function pollJobs() {
     const wasActive = before.some((j) => j.state === 'queued' || j.state === 'running')
     const nowActive = jobs.value.some((j) => j.state === 'queued' || j.state === 'running')
     if (wasActive && !nowActive) {
-      const failed = jobs.value.find((j) => j.state === 'error')
+      const failed = displayJobError(jobs.value, matchesBook)
       if (failed?.error) error.value = failed.error
       await refresh()
     }
